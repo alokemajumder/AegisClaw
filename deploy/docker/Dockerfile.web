@@ -1,0 +1,43 @@
+# Install dependencies
+FROM node:20-alpine AS deps
+
+WORKDIR /app
+
+COPY web/package.json web/package-lock.json* ./
+RUN npm install --frozen-lockfile || npm install
+
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY --from=deps /app/node_modules ./node_modules
+COPY web/ .
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN npm run build
+
+# Runtime stage
+FROM node:20-alpine AS runner
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN addgroup --system --gid 1001 aegisclaw && \
+    adduser --system --uid 1001 aegisclaw
+
+COPY --from=builder /app/public ./public
+COPY --from=builder --chown=aegisclaw:aegisclaw /app/.next/standalone ./
+COPY --from=builder --chown=aegisclaw:aegisclaw /app/.next/static ./.next/static
+
+USER aegisclaw
+
+EXPOSE 3000
+
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["node", "server.js"]

@@ -1,0 +1,58 @@
+# Go
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+go.work.sum
+
+# Node / Next.js
+web/node_modules/
+web/.next/
+web/out/
+web/.env*.local
+web/npm-debug.log*
+web/yarn-debug.log*
+web/yarn-error.log*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment / Secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+
+# Build artifacts
+dist/
+build/
+*.tar.gz
+
+# Docker
+.docker/
+
+# Coverage
+coverage/
+*.coverprofile
+coverage.out
+coverage.html
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporary
+tmp/
+*.tmp
+*.log

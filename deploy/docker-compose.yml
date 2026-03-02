@@ -1,0 +1,352 @@
+version: "3.9"
+
+services:
+  # ─────────────────────────────────────────────
+  # Infrastructure
+  # ─────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16
+    container_name: aegisclaw-postgres
+    environment:
+      POSTGRES_USER: aegisclaw
+      POSTGRES_PASSWORD: aegisclaw
+      POSTGRES_DB: aegisclaw
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aegisclaw"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aegisclaw-net
+
+  nats:
+    image: nats:2.10
+    container_name: aegisclaw-nats
+    command: ["--jetstream"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    healthcheck:
+      test: ["CMD", "nats-server", "--signal", "ldm"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aegisclaw-net
+
+  minio:
+    image: minio/minio
+    container_name: aegisclaw-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aegisclaw-net
+
+  ollama:
+    image: ollama/ollama
+    container_name: aegisclaw-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - aegisclaw-net
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.53
+    container_name: aegisclaw-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+    networks:
+      - aegisclaw-net
+
+  grafana:
+    image: grafana/grafana
+    container_name: aegisclaw-grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    networks:
+      - aegisclaw-net
+
+  prometheus:
+    image: prom/prometheus
+    container_name: aegisclaw-prometheus
+    ports:
+      - "9190:9090"
+    networks:
+      - aegisclaw-net
+
+  # ─────────────────────────────────────────────
+  # AegisClaw Services
+  # ─────────────────────────────────────────────
+
+  api-gateway:
+    build:
+      context: ../
+      dockerfile: deploy/docker/Dockerfile.api-gateway
+    container_name: aegisclaw-api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      AEGISCLAW_SERVER_API_PORT: "8080"
+      AEGISCLAW_DATABASE_HOST: postgres
+      AEGISCLAW_DATABASE_PORT: "5432"
+      AEGISCLAW_DATABASE_USER: aegisclaw
+      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
+      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_NATS_URL: nats://nats:4222
+      AEGISCLAW_MINIO_ENDPOINT: minio:9000
+      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
+      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_OLLAMA_URL: http://ollama:11434
+      AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aegisclaw-net
+
+  orchestrator:
+    build:
+      context: ../
+      dockerfile: deploy/docker/Dockerfile.orchestrator
+    container_name: aegisclaw-orchestrator
+    ports:
+      - "9090:9090"
+    environment:
+      AEGISCLAW_SERVER_GRPC_PORT: "9090"
+      AEGISCLAW_DATABASE_HOST: postgres
+      AEGISCLAW_DATABASE_PORT: "5432"
+      AEGISCLAW_DATABASE_USER: aegisclaw
+      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
+      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_NATS_URL: nats://nats:4222
+      AEGISCLAW_MINIO_ENDPOINT: minio:9000
+      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
+      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_OLLAMA_URL: http://ollama:11434
+      AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aegisclaw-net
+
+  runner:
+    build:
+      context: ../
+      dockerfile: deploy/docker/Dockerfile.runner
+    container_name: aegisclaw-runner
+    ports:
+      - "9091:9091"
+    environment:
+      AEGISCLAW_SERVER_GRPC_PORT: "9091"
+      AEGISCLAW_DATABASE_HOST: postgres
+      AEGISCLAW_DATABASE_PORT: "5432"
+      AEGISCLAW_DATABASE_USER: aegisclaw
+      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
+      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_NATS_URL: nats://nats:4222
+      AEGISCLAW_MINIO_ENDPOINT: minio:9000
+      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
+      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_OLLAMA_URL: http://ollama:11434
+      AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aegisclaw-net
+
+  evidence-service:
+    build:
+      context: ../
+      dockerfile: deploy/docker/Dockerfile.evidence
+    container_name: aegisclaw-evidence-service
+    ports:
+      - "9092:9092"
+    environment:
+      AEGISCLAW_SERVER_GRPC_PORT: "9092"
+      AEGISCLAW_DATABASE_HOST: postgres
+      AEGISCLAW_DATABASE_PORT: "5432"
+      AEGISCLAW_DATABASE_USER: aegisclaw
+      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
+      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_NATS_URL: nats://nats:4222
+      AEGISCLAW_MINIO_ENDPOINT: minio:9000
+      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
+      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - aegisclaw-net
+
+  connector-service:
+    build:
+      context: ../
+      dockerfile: deploy/docker/Dockerfile.connector
+    container_name: aegisclaw-connector-service
+    ports:
+      - "9093:9093"
+    environment:
+      AEGISCLAW_SERVER_GRPC_PORT: "9093"
+      AEGISCLAW_DATABASE_HOST: postgres
+      AEGISCLAW_DATABASE_PORT: "5432"
+      AEGISCLAW_DATABASE_USER: aegisclaw
+      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
+      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_NATS_URL: nats://nats:4222
+      AEGISCLAW_MINIO_ENDPOINT: minio:9000
+      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
+      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aegisclaw-net
+
+  reporting-service:
+    build:
+      context: ../
+      dockerfile: deploy/docker/Dockerfile.reporting
+    container_name: aegisclaw-reporting-service
+    ports:
+      - "9094:9094"
+    environment:
+      AEGISCLAW_SERVER_GRPC_PORT: "9094"
+      AEGISCLAW_DATABASE_HOST: postgres
+      AEGISCLAW_DATABASE_PORT: "5432"
+      AEGISCLAW_DATABASE_USER: aegisclaw
+      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
+      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_NATS_URL: nats://nats:4222
+      AEGISCLAW_MINIO_ENDPOINT: minio:9000
+      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
+      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aegisclaw-net
+
+  ollama-bridge:
+    build:
+      context: ../
+      dockerfile: deploy/docker/Dockerfile.ollama-bridge
+    container_name: aegisclaw-ollama-bridge
+    ports:
+      - "9095:9095"
+    environment:
+      AEGISCLAW_SERVER_GRPC_PORT: "9095"
+      AEGISCLAW_DATABASE_HOST: postgres
+      AEGISCLAW_DATABASE_PORT: "5432"
+      AEGISCLAW_DATABASE_USER: aegisclaw
+      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
+      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_NATS_URL: nats://nats:4222
+      AEGISCLAW_OLLAMA_URL: http://ollama:11434
+      AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    networks:
+      - aegisclaw-net
+
+  scheduler:
+    build:
+      context: ../
+      dockerfile: deploy/docker/Dockerfile.scheduler
+    container_name: aegisclaw-scheduler
+    ports:
+      - "9096:9096"
+    environment:
+      AEGISCLAW_SERVER_GRPC_PORT: "9096"
+      AEGISCLAW_DATABASE_HOST: postgres
+      AEGISCLAW_DATABASE_PORT: "5432"
+      AEGISCLAW_DATABASE_USER: aegisclaw
+      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
+      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_NATS_URL: nats://nats:4222
+      AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - aegisclaw-net
+
+  web:
+    build:
+      context: ../
+      dockerfile: deploy/docker/Dockerfile.web
+    container_name: aegisclaw-web
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://api-gateway:8080
+    depends_on:
+      - api-gateway
+    networks:
+      - aegisclaw-net
+
+# ─────────────────────────────────────────────
+# Volumes
+# ─────────────────────────────────────────────
+
+volumes:
+  postgres-data:
+  minio-data:
+  ollama-models:
+
+# ─────────────────────────────────────────────
+# Networks
+# ─────────────────────────────────────────────
+
+networks:
+  aegisclaw-net:
+    driver: bridge

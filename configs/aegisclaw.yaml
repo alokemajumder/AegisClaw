@@ -1,0 +1,54 @@
+server:
+  api_port: 8080
+  grpc_base_port: 9090
+
+database:
+  host: localhost
+  port: 5432
+  user: aegisclaw
+  password: aegisclaw
+  name: aegisclaw
+  ssl_mode: disable
+  max_conns: 25
+
+nats:
+  url: nats://localhost:4222
+  max_reconnects: 60
+  reconnect_wait: 2s
+
+minio:
+  endpoint: localhost:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  bucket: aegisclaw-evidence
+  use_ssl: false
+
+ollama:
+  url: http://localhost:11434
+  default_model: llama3.1
+  model_allowlist:
+    - llama3.1
+    - codellama
+    - mistral
+  timeout_seconds: 120
+
+auth:
+  jwt_secret: dev-secret-change-in-production
+  token_expiry: 15m
+  refresh_expiry: 168h  # 7 days
+  sso:
+    enabled: false
+    provider: oidc
+    issuer_url: ""
+    client_id: ""
+    client_secret: ""
+
+policy:
+  default_pack: default
+  global_rate_limit: 100
+  global_concurrency_cap: 20
+
+observability:
+  tracing_endpoint: localhost:4317
+  metrics_port: 9100
+  log_level: info

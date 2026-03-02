@@ -1,0 +1,61 @@
+# Default Policy Pack
+name: default
+description: Safe defaults for autonomous security validation
+version: 1
+
+tiers:
+  tier0:
+    name: Passive Validation
+    autonomous: true
+    description: Telemetry pipeline health, config posture checks, rule deployment checks
+    allowed_actions:
+      - query_siem_health
+      - query_edr_health
+      - verify_telemetry_pipeline
+      - check_config_posture
+      - verify_rule_deployment
+
+  tier1:
+    name: Benign Emulation
+    autonomous: true
+    cleanup_required: true
+    description: Safe atomic-style tests and markers with cleanup verification
+    allowed_actions:
+      - create_benign_marker
+      - execute_atomic_test
+      - simulate_login_attempt
+      - write_canary_file
+      - trigger_scheduled_task
+
+  tier2:
+    name: Sensitive Validation
+    autonomous: false
+    approval_required: true
+    description: Actions that may impact auth flows or operational stability
+    allowed_actions:
+      - modify_auth_config
+      - test_mfa_bypass
+      - validate_privilege_escalation_detection
+
+  tier3:
+    name: Prohibited
+    blocked: true
+    description: DoS, exfil-like behavior, destructive actions, uncontrolled payloads
+
+rate_limits:
+  global_per_minute: 100
+  per_engagement_per_minute: 10
+  per_connector_per_second: 10
+
+concurrency:
+  global_cap: 20
+  per_engagement_cap: 5
+
+blackout:
+  # Example: no validation runs during maintenance windows
+  windows: []
+
+circuit_breakers:
+  error_rate_threshold: 0.5
+  error_count_threshold: 10
+  reset_timeout_seconds: 300
