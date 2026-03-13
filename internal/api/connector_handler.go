@@ -294,9 +294,33 @@ func (h *Handler) TestConnector(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// MVP: report test success and update health
-	_ = h.ConnInst.UpdateHealthStatus(r.Context(), id, "healthy")
-	writeData(w, map[string]string{"status": "healthy", "message": "Connection test passed"})
+	if h.ConnectorSvc == nil {
+		// No connector service available — cannot perform real test
+		_ = h.ConnInst.UpdateHealthStatus(r.Context(), id, "unknown")
+		writeData(w, map[string]string{"status": "unknown", "message": "Connector service not available"})
+		return
+	}
+
+	conn, err := h.ConnectorSvc.GetConnector(r.Context(), id)
+	if err != nil {
+		_ = h.ConnInst.UpdateHealthStatus(r.Context(), id, "unhealthy")
+		writeData(w, map[string]string{"status": "unhealthy", "message": err.Error()})
+		return
+	}
+
+	health, err := conn.HealthCheck(r.Context())
+	if err != nil {
+		_ = h.ConnInst.UpdateHealthStatus(r.Context(), id, "unhealthy")
+		writeData(w, map[string]string{"status": "unhealthy", "message": err.Error()})
+		return
+	}
+
+	status := "healthy"
+	if health != nil {
+		status = health.Status
+	}
+	_ = h.ConnInst.UpdateHealthStatus(r.Context(), id, status)
+	writeData(w, map[string]string{"status": status, "message": "Connection test completed"})
 }
 
 func (h *Handler) GetConnectorHealth(w http.ResponseWriter, r *http.Request) {
@@ -340,8 +364,32 @@ func (h *Handler) TriggerHealthCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_ = h.ConnInst.UpdateHealthStatus(r.Context(), id, "healthy")
-	writeData(w, map[string]string{"status": "healthy"})
+	if h.ConnectorSvc == nil {
+		_ = h.ConnInst.UpdateHealthStatus(r.Context(), id, "unknown")
+		writeData(w, map[string]string{"status": "unknown", "message": "Connector service not available"})
+		return
+	}
+
+	conn, err := h.ConnectorSvc.GetConnector(r.Context(), id)
+	if err != nil {
+		_ = h.ConnInst.UpdateHealthStatus(r.Context(), id, "unhealthy")
+		writeData(w, map[string]string{"status": "unhealthy", "message": err.Error()})
+		return
+	}
+
+	health, err := conn.HealthCheck(r.Context())
+	if err != nil {
+		_ = h.ConnInst.UpdateHealthStatus(r.Context(), id, "unhealthy")
+		writeData(w, map[string]string{"status": "unhealthy", "message": err.Error()})
+		return
+	}
+
+	status := "healthy"
+	if health != nil {
+		status = health.Status
+	}
+	_ = h.ConnInst.UpdateHealthStatus(r.Context(), id, status)
+	writeData(w, map[string]string{"status": status})
 }
 
 // getURLParam extracts a URL parameter using chi's URLParam.

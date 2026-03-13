@@ -87,7 +87,7 @@ func (r *FindingRepo) ListByOrgID(ctx context.Context, orgID uuid.UUID, p models
 		return nil, 0, fmt.Errorf("listing findings: %w", err)
 	}
 	defer rows.Close()
-	return r.scanAll(rows)
+	return r.scanAll(rows, total)
 }
 
 func (r *FindingRepo) ListByRunID(ctx context.Context, runID uuid.UUID) ([]models.Finding, error) {
@@ -100,7 +100,7 @@ func (r *FindingRepo) ListByRunID(ctx context.Context, runID uuid.UUID) ([]model
 		return nil, fmt.Errorf("listing findings by run: %w", err)
 	}
 	defer rows.Close()
-	findings, _, err := r.scanAll(rows)
+	findings, _, err := r.scanAll(rows, 0)
 	return findings, err
 }
 
@@ -121,7 +121,7 @@ func (r *FindingRepo) ListByAssetID(ctx context.Context, assetID uuid.UUID, p mo
 		return nil, 0, fmt.Errorf("listing asset findings: %w", err)
 	}
 	defer rows.Close()
-	return r.scanAll(rows)
+	return r.scanAll(rows, total)
 }
 
 func (r *FindingRepo) Update(ctx context.Context, f *models.Finding) error {
@@ -170,11 +170,24 @@ func (r *FindingRepo) FindByHash(ctx context.Context, orgID uuid.UUID, clusterID
 		return nil, fmt.Errorf("finding by hash: %w", err)
 	}
 	defer rows.Close()
-	findings, _, err := r.scanAll(rows)
+	findings, _, err := r.scanAll(rows, 0)
 	return findings, err
 }
 
-func (r *FindingRepo) scanAll(rows pgx.Rows) ([]models.Finding, int, error) {
+func (r *FindingRepo) CountByOrgID(ctx context.Context, orgID uuid.UUID) (total int, critical int, high int, err error) {
+	err = r.q.QueryRow(ctx,
+		`SELECT count(*),
+		 count(*) FILTER (WHERE severity = 'critical'),
+		 count(*) FILTER (WHERE severity = 'high')
+		 FROM findings WHERE org_id = $1`, orgID,
+	).Scan(&total, &critical, &high)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("counting findings: %w", err)
+	}
+	return
+}
+
+func (r *FindingRepo) scanAll(rows pgx.Rows, total int) ([]models.Finding, int, error) {
 	var findings []models.Finding
 	for rows.Next() {
 		var f models.Finding
@@ -188,5 +201,5 @@ func (r *FindingRepo) scanAll(rows pgx.Rows) ([]models.Finding, int, error) {
 	if err := rows.Err(); err != nil {
 		return nil, 0, err
 	}
-	return findings, len(findings), nil
+	return findings, total, nil
 }

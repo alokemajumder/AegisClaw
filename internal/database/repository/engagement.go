@@ -135,6 +135,16 @@ func (r *EngagementRepo) Delete(ctx context.Context, id uuid.UUID) error {
 	return nil
 }
 
+func (r *EngagementRepo) CountByOrgID(ctx context.Context, orgID uuid.UUID) (total int, active int, err error) {
+	err = r.q.QueryRow(ctx,
+		`SELECT count(*), count(*) FILTER (WHERE status = 'active') FROM engagements WHERE org_id = $1`, orgID,
+	).Scan(&total, &active)
+	if err != nil {
+		return 0, 0, fmt.Errorf("counting engagements: %w", err)
+	}
+	return
+}
+
 func (r *EngagementRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status models.EngagementStatus) error {
 	tag, err := r.q.Exec(ctx,
 		`UPDATE engagements SET status = $2, updated_at = now() WHERE id = $1`, id, status)

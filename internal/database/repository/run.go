@@ -77,7 +77,7 @@ func (r *RunRepo) ListByOrgID(ctx context.Context, orgID uuid.UUID, p models.Pag
 	}
 	defer rows.Close()
 
-	return r.scanAll(rows)
+	return r.scanAll(rows, total)
 }
 
 func (r *RunRepo) ListByEngagementID(ctx context.Context, engagementID uuid.UUID, p models.PaginationParams) ([]models.Run, int, error) {
@@ -95,7 +95,7 @@ func (r *RunRepo) ListByEngagementID(ctx context.Context, engagementID uuid.UUID
 		return nil, 0, fmt.Errorf("listing runs by engagement: %w", err)
 	}
 	defer rows.Close()
-	return r.scanAll(rows)
+	return r.scanAll(rows, total)
 }
 
 func (r *RunRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status models.RunStatus) error {
@@ -152,6 +152,19 @@ func (r *RunRepo) SetStepsTotal(ctx context.Context, id uuid.UUID, total int) er
 	return nil
 }
 
+func (r *RunRepo) CountByOrgID(ctx context.Context, orgID uuid.UUID) (total int, active int, completed int, err error) {
+	err = r.q.QueryRow(ctx,
+		`SELECT count(*),
+		 count(*) FILTER (WHERE status IN ('queued', 'running')),
+		 count(*) FILTER (WHERE status = 'completed')
+		 FROM runs WHERE org_id = $1`, orgID,
+	).Scan(&total, &active, &completed)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("counting runs: %w", err)
+	}
+	return
+}
+
 func (r *RunRepo) ListRunning(ctx context.Context) ([]models.Run, error) {
 	rows, err := r.q.Query(ctx,
 		`SELECT id, engagement_id, org_id, status, tier, started_at, completed_at,
@@ -174,7 +187,7 @@ func (r *RunRepo) ListRunning(ctx context.Context) ([]models.Run, error) {
 	return runs, rows.Err()
 }
 
-func (r *RunRepo) scanAll(rows pgx.Rows) ([]models.Run, int, error) {
+func (r *RunRepo) scanAll(rows pgx.Rows, total int) ([]models.Run, int, error) {
 	var runs []models.Run
 	for rows.Next() {
 		var run models.Run
@@ -187,6 +200,5 @@ func (r *RunRepo) scanAll(rows pgx.Rows) ([]models.Run, int, error) {
 	if err := rows.Err(); err != nil {
 		return nil, 0, err
 	}
-	total := len(runs)
 	return runs, total, nil
 }

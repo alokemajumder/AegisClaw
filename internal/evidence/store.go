@@ -34,6 +34,7 @@ var allowedContentTypes = map[string]bool{
 	"text/csv":                 true,
 	"text/xml":                 true,
 	"text/html":                true,
+	"text/markdown":            true,
 	"image/png":                true,
 	"image/jpeg":               true,
 	"application/octet-stream": true,

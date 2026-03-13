@@ -192,6 +192,17 @@ export async function getEngagement(id: string) {
   return apiFetch<ApiResponse<Engagement>>(`/api/v1/engagements/${id}`);
 }
 
+export async function updateEngagement(id: string, data: Partial<Engagement>) {
+  return apiFetch<ApiResponse<Engagement>>(`/api/v1/engagements/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteEngagement(id: string) {
+  return apiFetch<ApiResponse<null>>(`/api/v1/engagements/${id}`, { method: "DELETE" });
+}
+
 export async function triggerRun(engagementId: string) {
   return apiFetch<ApiResponse<Run>>(`/api/v1/engagements/${engagementId}/runs`, {
     method: "POST",

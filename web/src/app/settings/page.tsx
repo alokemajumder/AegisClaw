@@ -1,43 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Shield, Plug, Bot, Save, CheckCircle2 } from "lucide-react";
+import { Settings, Shield, Plug, Bot, ExternalLink, Info, Loader2, User } from "lucide-react";
+import Link from "next/link";
+import { getMe } from "@/lib/api";
+import type { User as UserType } from "@/lib/types";
 
 export default function SettingsPage() {
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [user, setUser] = useState<UserType | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const handleSave = (section: string) => {
-    setSaveMessage(`${section} saved successfully`);
-    setTimeout(() => setSaveMessage(null), 3000);
-  };
+  useEffect(() => {
+    getMe()
+      .then(setUser)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
+        <h1 className="text-2xl font-bold text-slate-900">Platform Configuration</h1>
         <p className="text-sm text-slate-500">
-          Configure AegisClaw platform settings
+          View AegisClaw platform settings. System-level settings are managed via environment variables for security.
         </p>
       </div>
 
-      {saveMessage && (
-        <div className="flex items-center gap-2 rounded-md bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700">
-          <CheckCircle2 className="h-4 w-4" />
-          {saveMessage}
-        </div>
-      )}
+      <div className="flex items-start gap-2 rounded-md bg-blue-50 border border-blue-200 px-4 py-3 text-sm text-blue-700">
+        <Info className="h-4 w-4 mt-0.5 shrink-0" />
+        <span>
+          Platform configuration is managed through environment variables and deployment manifests.
+          Changes require a service restart to take effect. See{" "}
+          <code className="bg-blue-100 px-1 rounded text-xs font-mono">deploy/docker-compose.yml</code>{" "}
+          for all configurable options.
+        </span>
+      </div>
 
       <Tabs defaultValue="general">
         <TabsList>
@@ -63,90 +63,95 @@ export default function SettingsPage() {
         <TabsContent value="general" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Organization</CardTitle>
+              <CardTitle className="text-base">Current User</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4 max-w-lg">
-              <div className="space-y-2">
-                <Label htmlFor="orgName">Organization Name</Label>
-                <Input id="orgName" defaultValue="Contoso Security" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="policyPack">Default Policy Pack</Label>
-                <Select defaultValue="standard">
-                  <SelectTrigger id="policyPack">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="standard">Standard</SelectItem>
-                    <SelectItem value="strict">Strict</SelectItem>
-                    <SelectItem value="permissive">Permissive</SelectItem>
-                    <SelectItem value="custom">Custom</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="rateLimit">Global Rate Limit (req/min)</Label>
-                <Input
-                  id="rateLimit"
-                  type="number"
-                  defaultValue="60"
-                  className="max-w-[200px]"
-                />
-                <p className="text-xs text-slate-400">
-                  Maximum API requests per minute across all connectors.
-                </p>
-              </div>
-              <Button onClick={() => handleSave("General settings")}>
-                <Save className="h-4 w-4 mr-2" />
-                Save Changes
-              </Button>
+            <CardContent>
+              {loading ? (
+                <div className="flex items-center gap-2 text-slate-500">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading...
+                </div>
+              ) : user ? (
+                <div className="space-y-3 text-sm max-w-lg">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Name</span>
+                    <span className="font-medium">{user.full_name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Email</span>
+                    <span>{user.email}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Role</span>
+                    <Badge variant="outline">{user.role}</Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Organization</span>
+                    <span className="font-mono text-xs">{user.org_id.slice(0, 8)}...</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-slate-400 text-sm">Unable to load user info.</p>
+              )}
             </CardContent>
           </Card>
+
+          {user?.role === "admin" && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  Administration
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-slate-500 mb-3">
+                  Manage users, roles, and organization settings.
+                </p>
+                <Link
+                  href="/admin"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline"
+                >
+                  Open Admin Panel <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Policies Tab */}
         <TabsContent value="policies" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Policy Configuration</CardTitle>
+              <CardTitle className="text-base">Policy Tiers</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4 max-w-lg">
-                <div className="space-y-2">
-                  <Label htmlFor="approvalThreshold">
-                    Approval Required Above Tier
-                  </Label>
-                  <Select defaultValue="2">
-                    <SelectTrigger id="approvalThreshold">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="0">Tier 0 (all actions)</SelectItem>
-                      <SelectItem value="1">Tier 1</SelectItem>
-                      <SelectItem value="2">Tier 2</SelectItem>
-                      <SelectItem value="3">Tier 3</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-slate-400">
-                    Actions at or above this tier will require manual approval
-                    before execution.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="maxConcurrentRuns">
-                    Max Concurrent Runs
-                  </Label>
-                  <Input
-                    id="maxConcurrentRuns"
-                    type="number"
-                    defaultValue="5"
-                    className="max-w-[200px]"
-                  />
-                </div>
-                <Button onClick={() => handleSave("Policy settings")}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Policies
-                </Button>
+            <CardContent className="space-y-4 max-w-lg">
+              <p className="text-sm text-slate-500">
+                AegisClaw uses a tiered policy model to control the scope and risk of security validations.
+                Policy settings are configured per-engagement.
+              </p>
+              <div className="space-y-2">
+                {[
+                  { tier: 0, label: "Passive Reconnaissance", desc: "Read-only, no impact. DNS lookups, port scans, banner grabs." },
+                  { tier: 1, label: "Active Enumeration", desc: "Low-risk probes. Service fingerprinting, credential spraying (rate-limited)." },
+                  { tier: 2, label: "Exploitation (Guarded)", desc: "Safe exploit attempts with known rollback. Requires approval above this tier." },
+                  { tier: 3, label: "Controlled Impact", desc: "Write operations, persistence testing. Sandboxed execution with full evidence capture." },
+                ].map(({ tier, label, desc }) => (
+                  <div key={tier} className="border rounded-lg p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline" className="font-mono text-xs">Tier {tier}</Badge>
+                      <span className="text-sm font-medium">{label}</span>
+                    </div>
+                    <p className="text-xs text-slate-400">{desc}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="pt-2">
+                <Link
+                  href="/engagements"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline"
+                >
+                  Manage engagement policies <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
               </div>
             </CardContent>
           </Card>
@@ -156,41 +161,30 @@ export default function SettingsPage() {
         <TabsContent value="connectors" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">
-                Connector Global Settings
-              </CardTitle>
+              <CardTitle className="text-base">Connector Management</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4 max-w-lg">
-                <div className="space-y-2">
-                  <Label htmlFor="healthCheckInterval">
-                    Health Check Interval (seconds)
-                  </Label>
-                  <Input
-                    id="healthCheckInterval"
-                    type="number"
-                    defaultValue="300"
-                    className="max-w-[200px]"
-                  />
-                  <p className="text-xs text-slate-400">
-                    How often to poll connector health status.
-                  </p>
+            <CardContent className="space-y-4 max-w-lg">
+              <p className="text-sm text-slate-500">
+                Connectors integrate AegisClaw with external security tools and notification services.
+                Each connector instance is configured with its own credentials and settings.
+              </p>
+              <div className="space-y-2 text-sm">
+                <div className="border rounded-lg p-3">
+                  <span className="font-medium">Supported Connectors</span>
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {["Microsoft Sentinel", "Microsoft Defender", "ServiceNow", "Microsoft Teams", "Slack"].map(name => (
+                      <Badge key={name} variant="outline" className="text-xs">{name}</Badge>
+                    ))}
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="retryAttempts">
-                    Retry Attempts on Failure
-                  </Label>
-                  <Input
-                    id="retryAttempts"
-                    type="number"
-                    defaultValue="3"
-                    className="max-w-[200px]"
-                  />
-                </div>
-                <Button onClick={() => handleSave("Connector settings")}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Settings
-                </Button>
+              </div>
+              <div className="pt-2">
+                <Link
+                  href="/connectors"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:underline"
+                >
+                  Manage connectors <ExternalLink className="h-3.5 w-3.5" />
+                </Link>
               </div>
             </CardContent>
           </Card>
@@ -200,50 +194,36 @@ export default function SettingsPage() {
         <TabsContent value="ollama" className="space-y-4 mt-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">Ollama Configuration</CardTitle>
+              <CardTitle className="text-base">Ollama LLM Configuration</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="space-y-4 max-w-lg">
-                <div className="space-y-2">
-                  <Label htmlFor="ollamaEndpoint">Ollama Endpoint</Label>
-                  <Input
-                    id="ollamaEndpoint"
-                    defaultValue="http://localhost:11434"
-                  />
-                  <p className="text-xs text-slate-400">
-                    The base URL of your Ollama instance for LLM-driven
-                    analysis.
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ollamaModel">Default Model</Label>
-                  <Select defaultValue="llama3">
-                    <SelectTrigger id="ollamaModel">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="llama3">llama3</SelectItem>
-                      <SelectItem value="mistral">mistral</SelectItem>
-                      <SelectItem value="codellama">codellama</SelectItem>
-                      <SelectItem value="phi3">phi3</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ollamaTimeout">
-                    Request Timeout (seconds)
-                  </Label>
-                  <Input
-                    id="ollamaTimeout"
-                    type="number"
-                    defaultValue="120"
-                    className="max-w-[200px]"
-                  />
-                </div>
-                <Button onClick={() => handleSave("Ollama settings")}>
-                  <Save className="h-4 w-4 mr-2" />
-                  Save Ollama Settings
-                </Button>
+            <CardContent className="space-y-4 max-w-lg">
+              <p className="text-sm text-slate-500">
+                AegisClaw uses Ollama for local LLM inference. All AI reasoning stays on-premises.
+                Ollama is optional — agents fall back to deterministic logic when unavailable.
+              </p>
+              <div className="space-y-2">
+                {[
+                  { label: "Endpoint", envVar: "OLLAMA_URL", defaultVal: "http://ollama:11434" },
+                  { label: "Default Model", envVar: "OLLAMA_MODEL", defaultVal: "llama3" },
+                  { label: "Request Timeout", envVar: "OLLAMA_TIMEOUT", defaultVal: "120s" },
+                ].map(({ label, envVar, defaultVal }) => (
+                  <div key={envVar} className="border rounded-lg p-3 flex justify-between items-center">
+                    <div>
+                      <span className="text-sm font-medium">{label}</span>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Env: <code className="bg-slate-100 px-1 rounded font-mono">{envVar}</code>
+                      </p>
+                    </div>
+                    <Badge variant="outline" className="font-mono text-xs">{defaultVal}</Badge>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-start gap-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+                <Info className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                <span>
+                  To change Ollama settings, update the environment variables in your deployment configuration
+                  and restart the ollama-bridge service.
+                </span>
               </div>
             </CardContent>
           </Card>

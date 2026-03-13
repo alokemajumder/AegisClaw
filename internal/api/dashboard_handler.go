@@ -37,42 +37,9 @@ func (h *Handler) DashboardSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	assetCount, _ := h.Assets.CountByOrgID(ctx, claims.OrgID)
-
-	engagements, _, _ := h.Engagements.ListByOrgID(ctx, claims.OrgID, models.PaginationParams{Page: 1, PerPage: 1000})
-	activeEngagements := 0
-	for _, e := range engagements {
-		if e.Status == models.EngagementActive {
-			activeEngagements++
-		}
-	}
-
-	runs, _, _ := h.Runs.ListByOrgID(ctx, claims.OrgID, models.PaginationParams{Page: 1, PerPage: 1000}, "")
-	activeRuns := 0
-	completedRuns := 0
-	for _, run := range runs {
-		switch run.Status {
-		case models.RunRunning, models.RunQueued:
-			activeRuns++
-		case models.RunCompleted:
-			completedRuns++
-		}
-	}
-
-	findings, totalFindings, _ := h.Findings.ListByOrgID(ctx, claims.OrgID, models.PaginationParams{Page: 1, PerPage: 1}, "", "")
-	criticalFindings := 0
-	highFindings := 0
-	if totalFindings > 0 {
-		allFindings, _, _ := h.Findings.ListByOrgID(ctx, claims.OrgID, models.PaginationParams{Page: 1, PerPage: 1000}, "", "")
-		for _, f := range allFindings {
-			switch f.Severity {
-			case models.SeverityCritical:
-				criticalFindings++
-			case models.SeverityHigh:
-				highFindings++
-			}
-		}
-	}
-	_ = findings
+	totalEngagements, activeEngagements, _ := h.Engagements.CountByOrgID(ctx, claims.OrgID)
+	_, activeRuns, completedRuns, _ := h.Runs.CountByOrgID(ctx, claims.OrgID)
+	totalFindings, criticalFindings, highFindings, _ := h.Findings.CountByOrgID(ctx, claims.OrgID)
 
 	connectors, _ := h.ConnInst.ListByOrgID(ctx, claims.OrgID)
 	healthyConnectors := 0
@@ -85,7 +52,7 @@ func (h *Handler) DashboardSummary(w http.ResponseWriter, r *http.Request) {
 	writeData(w, map[string]any{
 		"assets":              assetCount,
 		"active_engagements":  activeEngagements,
-		"total_engagements":   len(engagements),
+		"total_engagements":   totalEngagements,
 		"active_runs":         activeRuns,
 		"completed_runs":      completedRuns,
 		"total_findings":      totalFindings,

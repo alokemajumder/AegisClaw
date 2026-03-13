@@ -14,9 +14,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alokemajumder/AegisClaw/internal/auth"
+	connectorsvc "github.com/alokemajumder/AegisClaw/internal/connector"
 	"github.com/alokemajumder/AegisClaw/internal/database/repository"
+	"github.com/alokemajumder/AegisClaw/internal/evidence"
 	"github.com/alokemajumder/AegisClaw/internal/models"
 	natspkg "github.com/alokemajumder/AegisClaw/internal/nats"
+	"github.com/alokemajumder/AegisClaw/internal/reporting"
 )
 
 // Handler holds all API dependencies.
@@ -41,6 +44,13 @@ type Handler struct {
 	Coverage   *repository.CoverageRepo
 	Policies   *repository.PolicyPackRepo
 	Reports    *repository.ReportRepo
+
+	// Connector service (optional — nil when not configured)
+	ConnectorSvc *connectorsvc.Service
+
+	// Reporting service and evidence store (optional — nil when not configured)
+	ReportSvc     *reporting.Service
+	EvidenceStore *evidence.Store
 
 	// Kill switch state
 	killSwitchMu      sync.RWMutex

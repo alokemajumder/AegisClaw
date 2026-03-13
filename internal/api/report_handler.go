@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/alokemajumder/AegisClaw/internal/models"
+	"github.com/alokemajumder/AegisClaw/internal/reporting"
 )
 
 func (h *Handler) ListReports(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +46,23 @@ func (h *Handler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		req.Title = "Security Validation Report"
 	}
 
+	if h.ReportSvc != nil {
+		cfg := reporting.ReportConfig{
+			Title:  req.Title,
+			Type:   reporting.ReportType(req.ReportType),
+			Format: req.Format,
+		}
+		report, err := h.ReportSvc.Generate(r.Context(), claims.OrgID, cfg, &claims.UserID)
+		if err != nil {
+			h.Logger.Error("generating report", "error", err)
+			writeError(w, http.StatusInternalServerError, "generation_error", "Failed to generate report")
+			return
+		}
+		writeJSON(w, http.StatusCreated, models.APIResponse{Data: report})
+		return
+	}
+
+	// Fallback: create record without content generation
 	report := &models.Report{
 		OrgID:       claims.OrgID,
 		Title:       req.Title,
@@ -54,16 +72,12 @@ func (h *Handler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		GeneratedBy: &claims.UserID,
 		Metadata:    json.RawMessage(`{}`),
 	}
-
 	if err := h.Reports.Create(r.Context(), report); err != nil {
 		h.Logger.Error("creating report", "error", err)
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to create report")
 		return
 	}
-
-	// For MVP, immediately mark as completed
 	_ = h.Reports.UpdateStatus(r.Context(), report.ID, "completed", "reports/"+report.ID.String()+".md")
-
 	writeJSON(w, http.StatusCreated, models.APIResponse{Data: report})
 }
 
@@ -110,8 +124,29 @@ func (h *Handler) DownloadReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// MVP: return report metadata as download content
+	// Try downloading from evidence store
+	if h.EvidenceStore != nil && report.StoragePath != nil && *report.StoragePath != "" {
+		ext := "md"
+		if report.Format == "json" {
+			ext = "json"
+		}
+		fileName := report.ID.String() + "." + ext
+		data, err := h.EvidenceStore.Download(r.Context(), "reports", *report.StoragePath, fileName)
+		if err == nil {
+			contentType := "text/markdown"
+			if report.Format == "json" {
+				contentType = "application/json"
+			}
+			w.Header().Set("Content-Type", contentType)
+			w.Header().Set("Content-Disposition", "attachment; filename=report-"+report.ID.String()+"."+ext)
+			w.Write(data)
+			return
+		}
+		h.Logger.Warn("failed to download report from storage", "error", err)
+	}
+
+	// Fallback: return report metadata
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Content-Disposition", "attachment; filename="+report.ID.String()+".json")
+	w.Header().Set("Content-Disposition", "attachment; filename=report-"+report.ID.String()+".json")
 	json.NewEncoder(w).Encode(report)
 }
