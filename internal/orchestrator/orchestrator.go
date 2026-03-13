@@ -59,6 +59,12 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 		return err
 	}
 
+	// Subscribe to approval-granted events to resume blocked steps
+	_, err = o.consumer.Subscribe(ctx, natspkg.StreamApprovals, "orchestrator-approvals", natspkg.SubjectApprovalGranted, o.handleApprovalGranted)
+	if err != nil {
+		return err
+	}
+
 	o.logger.Info("orchestrator started, listening for run triggers")
 	return nil
 }
@@ -88,7 +94,7 @@ func (o *Orchestrator) handleRunTrigger(ctx context.Context, data []byte) error 
 	}
 
 	// Find queued runs for this engagement
-	runs, _, err := o.runs.ListByEngagementID(ctx, msg.EngagementID, models.PaginationParams{Page: 1, PerPage: 10})
+	runs, _, err := o.runs.ListByEngagementID(ctx, msg.EngagementID, models.PaginationParams{Page: 1, PerPage: 100})
 	if err != nil {
 		o.logger.Error("listing runs", "error", err)
 		return nil
@@ -139,6 +145,41 @@ func (o *Orchestrator) handleRunTrigger(ctx context.Context, data []byte) error 
 
 		if err := o.engine.ExecuteRun(runCtx, targetRun); err != nil {
 			o.logger.Error("run execution failed", "run_id", targetRun.ID, "error", err)
+		}
+	}()
+
+	return nil
+}
+
+func (o *Orchestrator) handleApprovalGranted(ctx context.Context, data []byte) error {
+	env, err := natspkg.DecodeEnvelope[natspkg.ApprovalGrantedMsg](data)
+	if err != nil {
+		o.logger.Error("decoding approval granted message", "error", err)
+		return err
+	}
+
+	msg := env.Payload
+	o.logger.Info("received approval granted",
+		"run_id", msg.RunID,
+		"step_number", msg.StepNumber,
+		"approval_id", msg.ApprovalID,
+	)
+
+	run, err := o.runs.GetByID(ctx, msg.RunID)
+	if err != nil {
+		o.logger.Error("loading run for approved step", "run_id", msg.RunID, "error", err)
+		return nil
+	}
+
+	eng, err := o.engagements.GetByID(ctx, msg.EngagementID)
+	if err != nil {
+		o.logger.Error("loading engagement for approved step", "engagement_id", msg.EngagementID, "error", err)
+		return nil
+	}
+
+	go func() {
+		if err := o.engine.ExecuteApprovedStep(ctx, run, eng, msg.StepNumber); err != nil {
+			o.logger.Error("executing approved step failed", "run_id", msg.RunID, "step_number", msg.StepNumber, "error", err)
 		}
 	}()
 

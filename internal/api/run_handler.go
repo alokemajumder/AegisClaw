@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/alokemajumder/AegisClaw/internal/models"
+	natspkg "github.com/alokemajumder/AegisClaw/internal/nats"
 )
 
 func (h *Handler) ListRuns(w http.ResponseWriter, r *http.Request) {
@@ -170,5 +171,18 @@ func (h *Handler) ResumeRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to resume run")
 		return
 	}
+
+	// Publish a run trigger so the orchestrator re-dispatches the run
+	if h.Publisher != nil {
+		msg := natspkg.RunTriggerMsg{
+			EngagementID: run.EngagementID,
+			OrgID:        run.OrgID,
+			TriggeredBy:  claims.UserID.String(),
+		}
+		if err := h.Publisher.Publish(r.Context(), natspkg.SubjectRunTrigger, run.OrgID, msg); err != nil {
+			h.Logger.Error("publishing run trigger on resume", "error", err, "run_id", id)
+		}
+	}
+
 	writeData(w, map[string]string{"status": "running"})
 }

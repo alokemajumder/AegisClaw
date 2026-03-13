@@ -8,14 +8,14 @@ import {
   getDashboardActivity,
   getDashboardHealth,
 } from "@/lib/api";
-import type { DashboardSummary, DashboardHealth, AuditLogEntry } from "@/lib/types";
+import type { DashboardSummary, DashboardHealth, Run, Finding } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 
 export default function DashboardPage() {
   const { data: summary, loading: loadingSummary, error } = useApi<DashboardSummary>(
     getDashboardSummary
   );
-  const { data: activity } = useApi<AuditLogEntry[]>(getDashboardActivity);
+  const { data: activity } = useApi<{ recent_runs: Run[]; recent_findings: Finding[] }>(getDashboardActivity);
   const { data: health } = useApi<DashboardHealth>(getDashboardHealth);
 
   return (
@@ -128,21 +128,39 @@ export default function DashboardPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {activity && activity.length > 0 ? (
-                    activity.slice(0, 10).map((entry, i) => (
-                      <div
-                        key={i}
-                        className="flex items-start gap-3 text-sm border-l-2 pl-3 py-1 border-slate-300"
-                      >
-                        <span className="text-slate-400 text-xs whitespace-nowrap w-28">
-                          {new Date(entry.created_at).toLocaleString()}
-                        </span>
-                        <span className="text-slate-700">
-                          {entry.action} — {entry.resource_type}
-                          {entry.resource_id ? ` (${entry.resource_id.slice(0, 8)})` : ""}
-                        </span>
-                      </div>
-                    ))
+                  {activity &&
+                  ((activity.recent_runs?.length ?? 0) > 0 ||
+                    (activity.recent_findings?.length ?? 0) > 0) ? (
+                    <>
+                      {activity.recent_runs?.slice(0, 5).map((run) => (
+                        <div
+                          key={run.id}
+                          className="flex items-start gap-3 text-sm border-l-2 pl-3 py-1 border-blue-300"
+                        >
+                          <span className="text-slate-400 text-xs whitespace-nowrap w-28">
+                            {new Date(run.created_at).toLocaleString()}
+                          </span>
+                          <span className="text-slate-700">
+                            Run <Badge className="text-[10px] px-1.5 bg-blue-100 text-blue-700 hover:bg-blue-100">{run.status}</Badge>{" "}
+                            ({run.id.slice(0, 8)})
+                          </span>
+                        </div>
+                      ))}
+                      {activity.recent_findings?.slice(0, 5).map((finding) => (
+                        <div
+                          key={finding.id}
+                          className="flex items-start gap-3 text-sm border-l-2 pl-3 py-1 border-amber-300"
+                        >
+                          <span className="text-slate-400 text-xs whitespace-nowrap w-28">
+                            {new Date(finding.created_at).toLocaleString()}
+                          </span>
+                          <span className="text-slate-700">
+                            Finding: {finding.title}{" "}
+                            <Badge className="text-[10px] px-1.5">{finding.severity}</Badge>
+                          </span>
+                        </div>
+                      ))}
+                    </>
                   ) : (
                     <p className="text-sm text-slate-400">No recent activity</p>
                   )}

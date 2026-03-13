@@ -22,10 +22,11 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	APIPort     int      `mapstructure:"api_port"`
-	GRPCBasePort int     `mapstructure:"grpc_base_port"`
-	CORSOrigins []string `mapstructure:"cors_origins"`
-	Environment string   `mapstructure:"environment"`
+	APIPort      int      `mapstructure:"api_port"`
+	GRPCBasePort int      `mapstructure:"grpc_base_port"`
+	CORSOrigins  []string `mapstructure:"cors_origins"`
+	Environment  string   `mapstructure:"environment"`
+	PlaybookDir  string   `mapstructure:"playbook_dir"`
 }
 
 // TLSConfig holds TLS certificate configuration.
@@ -112,6 +113,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("server.grpc_base_port", 9090)
 	v.SetDefault("server.cors_origins", []string{"http://localhost:3000"})
 	v.SetDefault("server.environment", "development")
+	v.SetDefault("server.playbook_dir", "./playbooks")
 	v.SetDefault("tls.enabled", false)
 	v.SetDefault("database.host", "localhost")
 	v.SetDefault("database.port", 5432)
@@ -210,6 +212,9 @@ func (c *Config) Validate() error {
 		}
 		if !c.MinIO.UseSSL {
 			errs = append(errs, "minio.use_ssl should be enabled in production")
+		}
+		if c.Auth.ReceiptHMACKey == "" || c.Auth.ReceiptHMACKey == "dev-receipt-key-change-in-production" {
+			errs = append(errs, "auth.receipt_hmac_key must be set to a strong secret in production")
 		}
 	}
 

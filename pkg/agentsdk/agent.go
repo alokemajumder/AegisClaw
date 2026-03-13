@@ -66,7 +66,8 @@ type AgentDeps struct {
 	PlaybookLoader        any // *playbook.Loader
 	PlaybookExecutor      any // *playbook.Executor
 	ReceiptHMACKey        any // []byte - HMAC key for receipt signing
-	ConnectorInstanceRepo any // *repository.ConnectorInstanceRepo
+	ConnectorInstanceRepo any    // *repository.ConnectorInstanceRepo
+	PlaybookDir           string // Directory containing playbook YAML files
 }
 
 // Task is a unit of work dispatched to an agent.

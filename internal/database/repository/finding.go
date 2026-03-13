@@ -187,6 +187,22 @@ func (r *FindingRepo) CountByOrgID(ctx context.Context, orgID uuid.UUID) (total 
 	return
 }
 
+// CountByOrgIDFull returns total, critical, high, medium, and low finding counts.
+func (r *FindingRepo) CountByOrgIDFull(ctx context.Context, orgID uuid.UUID) (total, critical, high, medium, low int, err error) {
+	err = r.q.QueryRow(ctx,
+		`SELECT count(*),
+		 count(*) FILTER (WHERE severity = 'critical'),
+		 count(*) FILTER (WHERE severity = 'high'),
+		 count(*) FILTER (WHERE severity = 'medium'),
+		 count(*) FILTER (WHERE severity = 'low')
+		 FROM findings WHERE org_id = $1`, orgID,
+	).Scan(&total, &critical, &high, &medium, &low)
+	if err != nil {
+		return 0, 0, 0, 0, 0, fmt.Errorf("counting findings: %w", err)
+	}
+	return
+}
+
 func (r *FindingRepo) scanAll(rows pgx.Rows, total int) ([]models.Finding, int, error) {
 	var findings []models.Finding
 	for rows.Next() {

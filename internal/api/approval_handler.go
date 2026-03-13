@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/alokemajumder/AegisClaw/internal/models"
+	natspkg "github.com/alokemajumder/AegisClaw/internal/nats"
 )
 
 func (h *Handler) ListApprovals(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +78,7 @@ func (h *Handler) ApproveRequest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Rationale string `json:"rationale"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}
@@ -85,6 +86,33 @@ func (h *Handler) ApproveRequest(w http.ResponseWriter, r *http.Request) {
 	if err := h.Approvals.UpdateDecision(r.Context(), id, models.ApprovalApproved, claims.UserID, req.Rationale); err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to approve request")
 		return
+	}
+
+	// Publish approval-granted event so the orchestrator can resume the blocked step
+	if h.Publisher != nil && approval.TargetEntityID != nil {
+		runID := *approval.TargetEntityID
+		// Find the blocked step number from the run steps
+		steps, err := h.RunSteps.ListByRunID(r.Context(), runID)
+		if err == nil {
+			for _, step := range steps {
+				if step.Status == models.StepBlocked {
+					run, runErr := h.Runs.GetByID(r.Context(), runID)
+					if runErr == nil {
+						grantedMsg := natspkg.ApprovalGrantedMsg{
+							RunID:        runID,
+							StepNumber:   step.StepNumber,
+							ApprovalID:   id,
+							EngagementID: run.EngagementID,
+							OrgID:        approval.OrgID,
+						}
+						if pubErr := h.Publisher.Publish(r.Context(), natspkg.SubjectApprovalGranted, approval.OrgID, grantedMsg); pubErr != nil {
+							h.Logger.Error("publishing approval granted event", "error", pubErr, "approval_id", id)
+						}
+					}
+					break
+				}
+			}
+		}
 	}
 
 	resID := id.String()
@@ -115,7 +143,7 @@ func (h *Handler) DenyRequest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Rationale string `json:"rationale"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}

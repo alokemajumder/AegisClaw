@@ -37,7 +37,7 @@ func (a *ExecutorAgent) Init(_ context.Context, deps agentsdk.AgentDeps) error {
 		a.executor = exec
 		a.logger.Info("executor agent using real playbook executor")
 	} else {
-		a.executor = playbook.NewExecutor(a.logger)
+		a.executor = playbook.NewExecutor(deps.ConnectorSvc, a.logger)
 		a.logger.Info("executor agent created local playbook executor")
 	}
 

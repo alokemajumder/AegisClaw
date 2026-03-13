@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -30,6 +31,13 @@ type Claims struct {
 	Role   models.UserRole `json:"role"`
 }
 
+// TokenBlacklistStore abstracts persistent token blacklist storage.
+type TokenBlacklistStore interface {
+	Add(ctx context.Context, hash string, exp time.Time) error
+	IsBlacklisted(ctx context.Context, hash string) (bool, error)
+	Cleanup(ctx context.Context) error
+}
+
 // TokenService handles JWT token generation and validation.
 type TokenService struct {
 	secret        []byte
@@ -48,10 +56,19 @@ func NewTokenService(ctx context.Context, cfg config.AuthConfig) *TokenService {
 	}
 }
 
+// SetBlacklistStore configures a persistent backing store for the blacklist.
+// When set, Revoke and IsRevoked delegate to the store instead of the in-memory map.
+func (s *TokenService) SetBlacklistStore(store TokenBlacklistStore) {
+	s.Blacklist.store = store
+}
+
 // TokenBlacklist tracks revoked tokens until they naturally expire.
+// When a TokenBlacklistStore is set, it delegates to the persistent store;
+// otherwise it falls back to an in-memory map (useful for tests).
 type TokenBlacklist struct {
 	mu     sync.RWMutex
-	tokens map[string]time.Time // token hash -> expiry time
+	tokens map[string]time.Time // token hash -> expiry time (in-memory fallback)
+	store  TokenBlacklistStore  // persistent store (nil = in-memory only)
 }
 
 // NewTokenBlacklist creates a token blacklist with periodic cleanup.
@@ -65,18 +82,31 @@ func NewTokenBlacklist(ctx context.Context) *TokenBlacklist {
 
 // Revoke adds a token to the blacklist. The token stays blacklisted until its expiry.
 func (bl *TokenBlacklist) Revoke(tokenStr string, expiry time.Time) {
+	h := hashToken(tokenStr)
+	if bl.store != nil {
+		if err := bl.store.Add(context.Background(), h, expiry); err != nil {
+			slog.Error("failed to persist token revocation", "error", err)
+		}
+		return
+	}
 	bl.mu.Lock()
 	defer bl.mu.Unlock()
-	// Store a hash of the token, not the token itself
-	h := hashToken(tokenStr)
 	bl.tokens[h] = expiry
 }
 
 // IsRevoked checks if a token has been revoked.
 func (bl *TokenBlacklist) IsRevoked(tokenStr string) bool {
+	h := hashToken(tokenStr)
+	if bl.store != nil {
+		revoked, err := bl.store.IsBlacklisted(context.Background(), h)
+		if err != nil {
+			slog.Error("failed to check token blacklist", "error", err)
+			return false
+		}
+		return revoked
+	}
 	bl.mu.RLock()
 	defer bl.mu.RUnlock()
-	h := hashToken(tokenStr)
 	_, ok := bl.tokens[h]
 	return ok
 }
@@ -89,6 +119,12 @@ func (bl *TokenBlacklist) cleanup(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if bl.store != nil {
+				if err := bl.store.Cleanup(ctx); err != nil {
+					slog.Error("failed to cleanup token blacklist", "error", err)
+				}
+				continue
+			}
 			bl.mu.Lock()
 			now := time.Now()
 			for k, exp := range bl.tokens {

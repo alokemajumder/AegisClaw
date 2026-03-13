@@ -51,7 +51,7 @@ export default function TopBar() {
   };
 
   const initials = user
-    ? user.full_name
+    ? user.name
         .split(" ")
         .map((n) => n[0])
         .join("")
@@ -97,7 +97,7 @@ export default function TopBar() {
                 </AvatarFallback>
               </Avatar>
               <span className="text-sm text-slate-700">
-                {user?.full_name ?? "Loading..."}
+                {user?.name ?? "Loading..."}
               </span>
             </Button>
           </DropdownMenuTrigger>

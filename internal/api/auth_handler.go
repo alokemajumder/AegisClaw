@@ -1,10 +1,9 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/alokemajumder/AegisClaw/internal/models"
 	"golang.org/x/crypto/bcrypt"
@@ -21,63 +20,16 @@ type tokenResponse struct {
 	TokenType    string `json:"token_type"`
 }
 
-// loginAttempt tracks failed login attempts for account lockout.
-type loginAttempt struct {
-	Count    int
-	LastFail time.Time
-}
-
-const (
-	maxLoginAttempts  = 5
-	lockoutDuration   = 15 * time.Minute
-)
-
-var (
-	loginAttempts   = make(map[string]*loginAttempt)
-	loginAttemptsMu sync.Mutex
-)
-
-// isLockedOut checks if the email is temporarily locked out.
-func isLockedOut(email string) bool {
-	loginAttemptsMu.Lock()
-	defer loginAttemptsMu.Unlock()
-	a, ok := loginAttempts[email]
-	if !ok {
-		return false
-	}
-	if a.Count >= maxLoginAttempts && time.Since(a.LastFail) < lockoutDuration {
-		return true
-	}
-	if time.Since(a.LastFail) >= lockoutDuration {
-		delete(loginAttempts, email)
-		return false
-	}
-	return false
-}
-
-// recordFailedLogin increments the failed attempt counter for an email.
-func recordFailedLogin(email string) {
-	loginAttemptsMu.Lock()
-	defer loginAttemptsMu.Unlock()
-	a, ok := loginAttempts[email]
-	if !ok {
-		a = &loginAttempt{}
-		loginAttempts[email] = a
-	}
-	a.Count++
-	a.LastFail = time.Now()
-}
-
-// clearLoginAttempts resets the counter on successful login.
-func clearLoginAttempts(email string) {
-	loginAttemptsMu.Lock()
-	defer loginAttemptsMu.Unlock()
-	delete(loginAttempts, email)
+// LoginLockoutStore abstracts persistent login attempt tracking.
+type LoginLockoutStore interface {
+	RecordFailure(ctx context.Context, email string) error
+	IsLocked(ctx context.Context, email string) (bool, error)
+	Reset(ctx context.Context, email string) error
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}
@@ -88,32 +40,42 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Account lockout check
-	if isLockedOut(req.Email) {
-		writeError(w, http.StatusTooManyRequests, "account_locked", "Account temporarily locked due to too many failed attempts. Try again later.")
-		return
+	if h.LockoutStore != nil {
+		locked, err := h.LockoutStore.IsLocked(r.Context(), req.Email)
+		if err != nil {
+			h.Logger.Error("checking login lockout", "error", err)
+		}
+		if locked {
+			writeError(w, http.StatusTooManyRequests, "account_locked", "Account temporarily locked due to too many failed attempts. Try again later.")
+			return
+		}
 	}
 
 	user, err := h.Users.GetByEmail(r.Context(), req.Email)
 	if err != nil {
-		recordFailedLogin(req.Email)
+		h.recordFailedLogin(r.Context(), req.Email)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
 
 	if user.PasswordHash == nil {
-		recordFailedLogin(req.Email)
+		h.recordFailedLogin(r.Context(), req.Email)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(req.Password)); err != nil {
-		recordFailedLogin(req.Email)
+		h.recordFailedLogin(r.Context(), req.Email)
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "Invalid email or password")
 		return
 	}
 
 	// Successful login — clear lockout counter
-	clearLoginAttempts(req.Email)
+	if h.LockoutStore != nil {
+		if err := h.LockoutStore.Reset(r.Context(), req.Email); err != nil {
+			h.Logger.Error("resetting login attempts", "error", err)
+		}
+	}
 
 	accessToken, err := h.TokenSvc.GenerateToken(user)
 	if err != nil {
@@ -136,11 +98,20 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// recordFailedLogin delegates to the lockout store if available.
+func (h *Handler) recordFailedLogin(ctx context.Context, email string) {
+	if h.LockoutStore != nil {
+		if err := h.LockoutStore.RecordFailure(ctx, email); err != nil {
+			h.Logger.Error("recording failed login", "error", err)
+		}
+	}
+}
+
 func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		RefreshToken string `json:"refresh_token"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}

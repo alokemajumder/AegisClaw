@@ -162,6 +162,7 @@ An optional YAML config file lives at `configs/aegisclaw.yaml`. Environment vari
 server:
   api_port: 8080
   grpc_base_port: 9090
+  playbook_dir: playbooks    # Path to playbook YAML directory (env: AEGISCLAW_SERVER_PLAYBOOK_DIR)
 
 database:
   host: localhost
@@ -219,7 +220,7 @@ observability:
 | `nats`          | NATS URL, reconnect behavior                                     |
 | `minio`         | MinIO/S3 endpoint, credentials, bucket name                      |
 | `ollama`        | Ollama URL, default model, model allowlist, timeout               |
-| `server`        | API port, gRPC port, CORS origins                                |
+| `server`        | API port, gRPC port, CORS origins, playbook directory             |
 | `policy`        | Default playbook pack, rate limits, concurrency cap               |
 | `observability` | OTEL tracing endpoint, Prometheus metrics port, log level         |
 
@@ -313,7 +314,11 @@ docker compose -f deploy/docker-compose.yml logs -f api-gateway
 
 ### Migrations
 
-Database migrations live in `internal/database/migrations/` using the `golang-migrate` format.
+Database migrations live in `internal/database/migrations/` using the `golang-migrate` format. There are currently **3 migrations**:
+
+1. `000001_initial_schema` — 13 core tables (organizations, users, assets, connectors, engagements, runs, run_steps, findings, approvals, audit_log, coverage_entries, policy_packs)
+2. `000002_add_reports` — reports table
+3. `000003_add_token_blacklist_and_login_attempts` — token_blacklist and login_attempts tables (persistent auth state)
 
 **Automatic:** Migrations run automatically when the `api-gateway` service starts.
 
@@ -482,6 +487,7 @@ Examine and adjust `deploy.resources.limits` in `deploy/docker-compose.yml` base
 [ ] Resource limits reviewed and adjusted for workload
 [ ] Default admin password changed after first login
 [ ] Firewall rules restrict access to management ports (9001, 3001, 16686, 8222, 9190)
+[ ] AEGISCLAW_SERVER_PLAYBOOK_DIR set if playbooks are not in the default "playbooks" directory
 ```
 
 ---

@@ -1,6 +1,6 @@
 # AegisClaw — Implementation Progress
 
-> Last updated: 2026-03-13 (Session 7)
+> Last updated: 2026-03-14 (Session 8)
 
 ---
 
@@ -18,7 +18,7 @@
 - [x] `cmd/aegisclaw/` CLI skeleton
 - [x] Next.js 15 frontend (`web/`) with Tailwind + shadcn/ui
 - [x] Frontend page shells: Dashboard, Assets, Engagements, Runs, Findings, Connectors, Approvals, Reports, Settings
-- [x] PostgreSQL schema — migration `000001_initial_schema` (13 tables) + `000002_add_reports` (1 table) = 14 tables total
+- [x] PostgreSQL schema — migration `000001_initial_schema` (13 tables) + `000002_add_reports` (1 table) + `000003_token_blacklist_and_login_attempts` (2 tables) = 16 tables total
 - [x] NATS JetStream client + 5 stream definitions (RUNS, AGENTS, EVIDENCE, CONNECTORS, APPROVALS)
 - [x] Agent SDK (`pkg/agentsdk/`) — Agent interface, AgentDeps, Task/Result, 12 AgentType constants
 - [x] 12 agent stubs: PolicyEnforcer, ApprovalGate, ReceiptAgent, Planner, Executor, EvidenceAgent, TelemetryVerifier, DetectionEvaluator, ResponseAutomator, CoverageMapper, DriftDetector, RegressionTester
@@ -279,6 +279,54 @@
 - [x] DriftDetector agent: Wired to `repository.CoverageRepo` — compares current vs baseline coverage, generates drift findings
 - [x] RegressionTester agent: Wired to `repository.RunRepo` + `repository.FindingRepo` — queries recent runs, compares findings between baseline and current
 
+### Production-Grade Audit & Fix (Session 8)
+
+**Auth & Security:**
+- [x] Login token field mismatch fixed (frontend reads `access_token` from backend)
+- [x] RBAC enforcement on all route groups — viewer can only GET, operator/admin can mutate, approver can approve
+- [x] Approver role enforced on approval endpoints
+- [x] UpdateUser cross-tenant escalation fixed (org_id ownership check)
+- [x] CreateFindingTicket connector ownership verification
+- [x] JWT cookie Secure flag added for non-localhost deployments
+- [x] Receipt HMAC key validated in production config
+- [x] Token blacklist persisted to PostgreSQL (survives restarts, multi-instance safe)
+- [x] Login lockout persisted to PostgreSQL (survives restarts, multi-instance safe)
+- [x] Removed global state: loginAttempts and tokenBlacklist are now DB-backed
+- [x] Migration 000003: token_blacklist and login_attempts tables
+
+**Service Wiring:**
+- [x] API gateway wires ConnectorSvc, ReportSvc, EvidenceStore — all handlers use real services
+- [x] GenerateReport returns 503 when service unavailable (removed phantom report fallback)
+- [x] CreateFindingTicket calls real ITSM connector (removed fake ticket IDs)
+- [x] MaxBytesReader receives proper ResponseWriter
+
+**Frontend Contract Fixes:**
+- [x] Dashboard field names aligned (total_assets, running_runs, medium_findings, etc.)
+- [x] DashboardHealth returns strings + kill_switch_engaged (was returning bools)
+- [x] User.name field aligned (was full_name in frontend, name in backend)
+- [x] Activity feed renders recent_runs + recent_findings (was typed as AuditLogEntry[])
+- [x] Finding ticket creation uses real ITSM connector selector
+
+**Playbook Real Execution:**
+- [x] query_telemetry: real SIEM connector queries
+- [x] check_edr_agents: real EDR connector health queries
+- [x] drop_marker_file: creates real EICAR test files in temp directory
+- [x] execute_encoded_command: real execution with strict command allowlist
+- [x] verify_detection: real alert queries via connector
+- [x] verify_cleanup: real file existence checks + self-cleanup
+- [x] Unknown actions return failure instead of simulated success
+- [x] Playbook path configurable via server.playbook_dir (was hardcoded "playbooks")
+
+**Approval & Run Engine:**
+- [x] Approved Tier 2+ steps resume via NATS (approvals.granted → orchestrator re-dispatches)
+- [x] ResumeRun publishes NATS trigger (was only updating DB status)
+- [x] All silent DB error discards replaced with logged errors (12 sites)
+- [x] Run queue limit increased from 10 to 100
+
+**Connector Security:**
+- [x] secret_ref resolved from environment variables (was always empty)
+- [x] Circuit breaker wired to all connector calls (QueryEvents, CreateTicket, SendNotification)
+
 ### Agent Pipeline Audit & Fix (Session 7)
 
 - [x] Full 12-agent pipeline wired in `RunEngine.ExecuteRun()` — 3-phase architecture: Planning → Per-step execution → Post-run agents
@@ -436,9 +484,9 @@
 |-------|-------|-----------|-----------|
 | Phase 0 — Scaffold | 32 | 32 | 0 |
 | Phase 1 — MVP | 98 | 98 | 0 |
-| Phase 2 — Production | 150 | 118 | 32 |
-| **Total** | **280** | **248** | **32** |
+| Phase 2 — Production | 184 | 152 | 32 |
+| **Total** | **314** | **282** | **32** |
 
 **Phase 1 COMPLETE.** All 13 blocks done. End-to-end flow works: Create Asset → Create Engagement → Trigger Run → Findings → Report.
 
-**Phase 2 Progress:** Full 12-agent pipeline audited and wired into 3-phase RunEngine (plan → per-step → post-run). HMAC-SHA256 receipt signing via `internal/receipt.Generator`. PolicyEnforcer allowlist enforcement for Tier 1+. Pre-run coverage snapshots for drift detection. Connector resolution by category. All simulated/fake fallback data removed. Full CLI. 13 playbooks (4 Tier 0 + 6 Tier 1 + 3 Tier 2) + playbook schema. 4 detail pages with inline edit. **161 test functions, 400 test cases, 0 failures across 16 packages.** Production hardening: 7 deployment blockers fixed, JWT validation + token blacklisting, auth middleware + rate limiting + account lockout, JSON injection fix, tenant isolation (30 handlers), Docker Compose hardened (resource limits, env var substitution, health checks on all 16 services), kill switch persistence, graceful shutdown timeouts, pagination bug fixes, dashboard aggregate queries, stub elimination (3 handlers), Prometheus metrics middleware, configurable trace sampling, API retry with backoff, `.env.example` with 50+ documented variables. All documentation verified against codebase.
+**Phase 2 Progress:** Full 12-agent pipeline audited and wired into 3-phase RunEngine (plan → per-step → post-run). HMAC-SHA256 receipt signing via `internal/receipt.Generator`. PolicyEnforcer allowlist enforcement for Tier 1+. Pre-run coverage snapshots for drift detection. Connector resolution by category. All simulated/fake fallback data removed. Full CLI. 13 playbooks (4 Tier 0 + 6 Tier 1 + 3 Tier 2) + playbook schema. 4 detail pages with inline edit. **161 test functions, 400 test cases, 0 failures across 16 packages.** Production hardening: 7 deployment blockers fixed, JWT validation + token blacklisting (DB-persisted), auth middleware + rate limiting + account lockout (DB-persisted), JSON injection fix, tenant isolation (30 handlers), RBAC enforcement on all route groups (viewer=GET, operator/admin=mutate, approver=approve), Docker Compose hardened (resource limits, env var substitution, health checks on all 16 services), kill switch persistence, graceful shutdown timeouts, pagination bug fixes, dashboard aggregate queries, stub elimination (3 handlers), Prometheus metrics middleware, configurable trace sampling, API retry with backoff, `.env.example` with 50+ documented variables. Production-grade audit: login token field alignment, cross-tenant escalation fix, JWT cookie Secure flag, real playbook execution (SIEM queries, EDR health, EICAR markers, command allowlist, detection verification, cleanup checks), approval resume via NATS, secret_ref resolution from env vars, circuit breakers on all connector calls, 12 silent error discards fixed, frontend contract alignment (dashboard fields, health endpoint, user name, activity feed). Migration 000003: token_blacklist + login_attempts tables. All documentation verified against codebase.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,8 +21,8 @@ import {
 } from "@/components/ui/select";
 import { AlertTriangle, Filter, Loader2, Ticket } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
-import { listFindings, createFindingTicket } from "@/lib/api";
-import type { Finding } from "@/lib/types";
+import { listFindings, createFindingTicket, listConnectorInstances } from "@/lib/api";
+import type { Finding, ConnectorInstance } from "@/lib/types";
 
 const severityColor: Record<string, string> = {
   critical: "bg-red-100 text-red-700 hover:bg-red-100",
@@ -54,11 +54,34 @@ export default function FindingsPage() {
     [severityFilter, statusFilter]
   );
 
+  // ITSM connector state
+  const [itsmConnectors, setItsmConnectors] = useState<ConnectorInstance[]>([]);
+  const [selectedConnectorId, setSelectedConnectorId] = useState<string>("");
+  const [connectorsLoading, setConnectorsLoading] = useState(true);
+
+  useEffect(() => {
+    listConnectorInstances(1, 200)
+      .then((resp) => {
+        const itsm = (resp.data ?? []).filter(
+          (c: ConnectorInstance) => c.category === "itsm" && c.enabled
+        );
+        setItsmConnectors(itsm);
+        if (itsm.length === 1) {
+          setSelectedConnectorId(itsm[0].id);
+        }
+      })
+      .catch(() => {
+        setItsmConnectors([]);
+      })
+      .finally(() => setConnectorsLoading(false));
+  }, []);
+
   const [ticketing, setTicketing] = useState<string | null>(null);
   const handleCreateTicket = async (findingId: string) => {
+    if (!selectedConnectorId) return;
     setTicketing(findingId);
     try {
-      await createFindingTicket(findingId, { connector_id: "" });
+      await createFindingTicket(findingId, { connector_id: selectedConnectorId });
       refetch();
     } catch {
       // Error handled by API layer
@@ -66,6 +89,8 @@ export default function FindingsPage() {
       setTicketing(null);
     }
   };
+
+  const hasItsmConnector = !connectorsLoading && itsmConnectors.length > 0;
 
   return (
     <div className="space-y-6">
@@ -76,7 +101,7 @@ export default function FindingsPage() {
         </p>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <Filter className="h-4 w-4 text-slate-400" />
         <Select value={severityFilter} onValueChange={setSeverityFilter}>
           <SelectTrigger className="w-[160px]">
@@ -105,6 +130,21 @@ export default function FindingsPage() {
             <SelectItem value="closed">Closed</SelectItem>
           </SelectContent>
         </Select>
+        {!connectorsLoading && itsmConnectors.length > 1 && (
+          <Select value={selectedConnectorId} onValueChange={setSelectedConnectorId}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="ITSM Connector" />
+            </SelectTrigger>
+            <SelectContent>
+              {itsmConnectors.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {!connectorsLoading && itsmConnectors.length === 0 && (
+          <span className="text-sm text-slate-400">No ITSM connector configured</span>
+        )}
       </div>
 
       <Card>
@@ -166,12 +206,12 @@ export default function FindingsPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        {!finding.ticket_id && (
+                        {!finding.ticket_id && hasItsmConnector && (
                           <Button
                             variant="ghost"
                             size="sm"
                             onClick={() => handleCreateTicket(finding.id)}
-                            disabled={ticketing === finding.id}
+                            disabled={ticketing === finding.id || !selectedConnectorId}
                           >
                             {ticketing === finding.id ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />

@@ -13,7 +13,6 @@ import type {
   DashboardHealth,
   AuthTokens,
   User,
-  AuditLogEntry,
 } from "./types";
 
 // In production, API calls go through Next.js rewrites (relative path).
@@ -30,7 +29,8 @@ export function getToken(): string | null {
 export function setToken(token: string) {
   localStorage.setItem(TOKEN_KEY, token);
   // Also set as cookie for middleware auth protection
-  document.cookie = `${TOKEN_KEY}=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax`;
+  const secure = window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1" ? "; Secure" : "";
+  document.cookie = `${TOKEN_KEY}=${token}; path=/; max-age=${7 * 24 * 60 * 60}; SameSite=Lax${secure}`;
 }
 
 export function clearToken() {
@@ -127,8 +127,8 @@ export async function login(email: string, password: string): Promise<AuthTokens
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
-  if (resp.data?.token) {
-    setToken(resp.data.token);
+  if (resp.data?.access_token) {
+    setToken(resp.data.access_token);
   }
   return resp.data;
 }
@@ -315,7 +315,7 @@ export async function getDashboardSummary() {
 }
 
 export async function getDashboardActivity() {
-  return apiFetch<ApiResponse<AuditLogEntry[]>>("/api/v1/dashboard/activity");
+  return apiFetch<ApiResponse<{ recent_runs: Run[]; recent_findings: Finding[] }>>("/api/v1/dashboard/activity");
 }
 
 export async function getDashboardHealth() {

@@ -119,7 +119,9 @@ export interface ConnectorRegistry {
 export interface ConnectorInstance {
   id: string;
   org_id: string;
-  registry_id: string;
+  registry_id?: string;
+  connector_type: string;
+  category: string;
   name: string;
   description?: string;
   config: Record<string, unknown>;
@@ -194,15 +196,15 @@ export interface User {
   id: string;
   org_id: string;
   email: string;
-  full_name: string;
-  role: "admin" | "operator" | "viewer" | "auditor";
+  name: string;
+  role: "admin" | "operator" | "viewer" | "approver";
   is_active: boolean;
   created_at: string;
   updated_at: string;
 }
 
 export interface AuthTokens {
-  token: string;
+  access_token: string;
   refresh_token?: string;
   expires_at: string;
 }

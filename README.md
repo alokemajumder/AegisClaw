@@ -64,7 +64,7 @@ The platform is **agents-first**: autonomous agent squads (Red + Blue + Purple l
 
 ### Continuous Autonomous Validation
 - **Tier 0 (Passive)**: Telemetry pipeline health, config posture checks — fully autonomous
-- **Tier 1 (Benign emulation)**: Safe atomic-style tests with ATT&CK mapping and cleanup verification — fully autonomous
+- **Tier 1 (Benign emulation)**: Real execution of safe atomic-style tests (EICAR markers, allowlisted commands, SIEM/EDR queries, detection verification, cleanup checks) with ATT&CK mapping — fully autonomous
 - **Tier 2 (Sensitive)**: Actions impacting auth/ops require explicit human approval
 - **Tier 3 (Prohibited)**: DoS, exfil, destructive actions — blocked by default
 
@@ -81,8 +81,9 @@ All 12 agents are wired into a 3-phase `RunEngine` pipeline that executes end-to
 - Audit-grade immutable run receipts (HMAC-SHA256 signed with full step data + scope snapshot)
 - Target allowlists + exclusions (hard enforced — empty allowlist blocks all Tier 1+ actions)
 - Time windows, blackout periods, rate limits, concurrency caps
-- Circuit breakers and global kill switch
-- RBAC with 4 roles (admin, operator, approver, viewer)
+- Circuit breakers on all connector calls (QueryEvents, CreateTicket, SendNotification) and global kill switch
+- RBAC enforced on all route groups: viewer can only GET, operator/admin can mutate, approver can approve
+- Persistent token blacklist and login lockout (PostgreSQL-backed, survives restarts, multi-instance safe)
 - Pre-run coverage snapshots for drift detection
 
 ### Local LLM Reasoning (Ollama)
@@ -314,7 +315,7 @@ make test
 
 ### Phase 0 — Foundations (Complete)
 - [x] Core platform architecture
-- [x] Database schema and migrations (14 tables across 2 migrations)
+- [x] Database schema and migrations (16 tables across 3 migrations)
 - [x] Service skeletons with gRPC/REST (8 Go services + 1 CLI)
 - [x] Agent SDK and Connector SDK
 - [x] Docker Compose development stack (16 services total)
@@ -333,8 +334,10 @@ make test
 
 ### Phase 2 — Production Hardening (In Progress)
 - [x] JWT validation, auth rate limiting, account lockout (5 attempts → 15 min lockout)
-- [x] Token blacklisting with SHA256 hashing and periodic cleanup
-- [x] Tenant isolation (org_id enforcement on all handlers)
+- [x] Token blacklisting persisted to PostgreSQL (survives restarts, multi-instance safe)
+- [x] Login lockout persisted to PostgreSQL (survives restarts, multi-instance safe)
+- [x] RBAC enforcement on all route groups (viewer=GET, operator/admin=mutate, approver=approve)
+- [x] Tenant isolation (org_id enforcement on all handlers) + cross-tenant escalation fix
 - [x] Docker Compose hardening (resource limits, log rotation, health checks)
 - [x] Health check endpoints on all services (/healthz + /readyz)
 - [x] Kill switch persistence across restarts
@@ -344,6 +347,7 @@ make test
 - [x] Pagination bug fixes (correct total counts from DB)
 - [x] Dashboard optimized with DB aggregate queries
 - [x] Frontend inline edit/delete for assets and engagements
+- [x] Frontend contract alignment (dashboard fields, health endpoint, user name, activity feed)
 - [x] Full 12-agent pipeline wired in RunEngine (3-phase: plan → per-step → post-run)
 - [x] HMAC-SHA256 receipt signing via `internal/receipt.Generator`
 - [x] PolicyEnforcer allowlist enforcement for Tier 1+ actions
@@ -351,6 +355,11 @@ make test
 - [x] Pre-run coverage snapshots for drift comparison
 - [x] Connector resolution by category (siem, edr, itsm, notification)
 - [x] Simulated/fake fallback data removed from all agents
+- [x] Real playbook execution (SIEM queries, EDR health, EICAR markers, command allowlist, detection verification, cleanup)
+- [x] Approval resume via NATS (approvals.granted → orchestrator re-dispatches)
+- [x] Circuit breakers wired to all connector calls
+- [x] Connector secret_ref resolved from environment variables
+- [x] Migration 000003: token_blacklist and login_attempts tables
 - [ ] gVisor runner sandboxing
 - [ ] Additional connectors (Entra ID, Splunk, Elastic, CrowdStrike, Jira, Okta)
 - [ ] PDF report renderer

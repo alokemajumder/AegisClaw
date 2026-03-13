@@ -74,7 +74,7 @@ export default function SettingsPage() {
                 <div className="space-y-3 text-sm max-w-lg">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Name</span>
-                    <span className="font-medium">{user.full_name}</span>
+                    <span className="font-medium">{user.name}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Email</span>

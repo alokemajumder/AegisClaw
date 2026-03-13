@@ -242,7 +242,9 @@ func (e *RunEngine) executeStep(
 		return accum
 	}
 
-	_ = e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepRunning, nil)
+	if err := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepRunning, nil); err != nil {
+		e.logger.Error("updating step to running", "error", err, "step_id", stepRecord.ID)
+	}
 
 	// ─ 2a. PolicyEnforcer ─
 	enforcer, _ := e.agents.Get(agentsdk.AgentPolicyEnforcer)
@@ -261,8 +263,12 @@ func (e *RunEngine) executeStep(
 		if policyResult != nil {
 			if policyResult.Status == agentsdk.StatusBlocked {
 				errMsg := "blocked by policy: " + policyResult.Error
-				_ = e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg)
-				_ = e.runs.IncrementSteps(ctx, run.ID, 0, 1)
+				if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg); updateErr != nil {
+					e.logger.Error("updating step to blocked by policy", "error", updateErr, "step_id", stepRecord.ID)
+				}
+				if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+					e.logger.Error("incrementing failed steps after policy block", "error", incErr, "run_id", run.ID)
+				}
 				accum.Status = "blocked"
 				accum.Error = errMsg
 				accum.CompletedAt = time.Now().UTC()
@@ -282,8 +288,12 @@ func (e *RunEngine) executeStep(
 	executor, err := e.agents.Get(agentsdk.AgentExecutor)
 	if err != nil {
 		errMsg := "executor agent not found"
-		_ = e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepFailed, &errMsg)
-		_ = e.runs.IncrementSteps(ctx, run.ID, 0, 1)
+		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepFailed, &errMsg); updateErr != nil {
+			e.logger.Error("updating step to failed (executor not found)", "error", updateErr, "step_id", stepRecord.ID)
+		}
+		if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+			e.logger.Error("incrementing failed steps (executor not found)", "error", incErr, "run_id", run.ID)
+		}
 		accum.Status = "failed"
 		accum.Error = errMsg
 		accum.CompletedAt = time.Now().UTC()
@@ -303,8 +313,12 @@ func (e *RunEngine) executeStep(
 	})
 	if err != nil {
 		errMsg := err.Error()
-		_ = e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepFailed, &errMsg)
-		_ = e.runs.IncrementSteps(ctx, run.ID, 0, 1)
+		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepFailed, &errMsg); updateErr != nil {
+			e.logger.Error("updating step to failed (executor error)", "error", updateErr, "step_id", stepRecord.ID)
+		}
+		if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+			e.logger.Error("incrementing failed steps (executor error)", "error", incErr, "run_id", run.ID)
+		}
 		accum.Status = "failed"
 		accum.Error = errMsg
 		accum.CompletedAt = time.Now().UTC()
@@ -317,9 +331,15 @@ func (e *RunEngine) executeStep(
 
 	if execResult.Status == agentsdk.StatusFailed {
 		errMsg := execResult.Error
-		_ = e.steps.SetOutputs(ctx, stepRecord.ID, execResult.Outputs, execResult.EvidenceIDs, execResult.CleanupDone)
-		_ = e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepFailed, &errMsg)
-		_ = e.runs.IncrementSteps(ctx, run.ID, 0, 1)
+		if setErr := e.steps.SetOutputs(ctx, stepRecord.ID, execResult.Outputs, execResult.EvidenceIDs, execResult.CleanupDone); setErr != nil {
+			e.logger.Error("setting step outputs (executor failed)", "error", setErr, "step_id", stepRecord.ID)
+		}
+		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepFailed, &errMsg); updateErr != nil {
+			e.logger.Error("updating step to failed (executor result)", "error", updateErr, "step_id", stepRecord.ID)
+		}
+		if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+			e.logger.Error("incrementing failed steps (executor result)", "error", incErr, "run_id", run.ID)
+		}
 		accum.Status = "failed"
 		accum.Error = errMsg
 		accum.CompletedAt = time.Now().UTC()
@@ -416,9 +436,15 @@ func (e *RunEngine) executeStep(
 
 	// Update step record with combined results
 	allStepEvidence := accum.EvidenceIDs
-	_ = e.steps.SetOutputs(ctx, stepRecord.ID, execResult.Outputs, allStepEvidence, accum.CleanupDone)
-	_ = e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepCompleted, nil)
-	_ = e.runs.IncrementSteps(ctx, run.ID, 1, 0)
+	if setErr := e.steps.SetOutputs(ctx, stepRecord.ID, execResult.Outputs, allStepEvidence, accum.CleanupDone); setErr != nil {
+		e.logger.Error("setting step outputs", "error", setErr, "step_id", stepRecord.ID)
+	}
+	if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepCompleted, nil); updateErr != nil {
+		e.logger.Error("updating step to completed", "error", updateErr, "step_id", stepRecord.ID)
+	}
+	if incErr := e.runs.IncrementSteps(ctx, run.ID, 1, 0); incErr != nil {
+		e.logger.Error("incrementing completed steps", "error", incErr, "run_id", run.ID)
+	}
 
 	accum.Status = "completed"
 	accum.CompletedAt = time.Now().UTC()
@@ -442,8 +468,12 @@ func (e *RunEngine) handleApproval(
 	if approvalAgent == nil {
 		// No approval agent — block the step
 		errMsg := "tier 2+ requires approval but no approval gate agent available"
-		_ = e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg)
-		_ = e.runs.IncrementSteps(ctx, run.ID, 0, 1)
+		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg); updateErr != nil {
+			e.logger.Error("updating step to blocked (no approval agent)", "error", updateErr, "step_id", stepRecord.ID)
+		}
+		if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+			e.logger.Error("incrementing failed steps (no approval agent)", "error", incErr, "run_id", run.ID)
+		}
 		accum.Status = "blocked"
 		accum.Error = errMsg
 		accum.CompletedAt = time.Now().UTC()
@@ -469,8 +499,12 @@ func (e *RunEngine) handleApproval(
 			"tier", stepTask.Tier,
 		)
 		errMsg := "awaiting human approval for tier 2+ action"
-		_ = e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg)
-		_ = e.runs.IncrementSteps(ctx, run.ID, 0, 1)
+		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg); updateErr != nil {
+			e.logger.Error("updating step to blocked (awaiting approval)", "error", updateErr, "step_id", stepRecord.ID)
+		}
+		if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+			e.logger.Error("incrementing failed steps (awaiting approval)", "error", incErr, "run_id", run.ID)
+		}
 		accum.Status = "awaiting_approval"
 		accum.Error = errMsg
 		accum.CompletedAt = time.Now().UTC()
@@ -479,6 +513,231 @@ func (e *RunEngine) handleApproval(
 
 	// Approval was auto-granted (shouldn't happen for tier 2+, but handle gracefully)
 	return accum
+}
+
+// ExecuteApprovedStep resumes a blocked step after human approval, skipping
+// PolicyEnforcer and ApprovalGate since the step is already approved.
+func (e *RunEngine) ExecuteApprovedStep(ctx context.Context, run *models.Run, eng *models.Engagement, stepNumber int) error {
+	e.logger.Info("executing approved step", "run_id", run.ID, "step_number", stepNumber)
+
+	// Find the blocked step record
+	steps, err := e.steps.ListByRunID(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("listing run steps: %w", err)
+	}
+
+	var stepRecord *models.RunStep
+	for i := range steps {
+		if steps[i].StepNumber == stepNumber && steps[i].Status == models.StepBlocked {
+			stepRecord = &steps[i]
+			break
+		}
+	}
+	if stepRecord == nil {
+		return fmt.Errorf("blocked step %d not found for run %s", stepNumber, run.ID)
+	}
+
+	// Resolve connectors for agent pipeline
+	connectorMap := e.resolveConnectors(ctx, eng)
+
+	// Mark step as running
+	if err := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepRunning, nil); err != nil {
+		e.logger.Error("updating approved step to running", "error", err, "step_id", stepRecord.ID)
+	}
+
+	// Build a task from the step record
+	stepTask := &agentsdk.Task{
+		ID:           uuid.New().String(),
+		RunID:        run.ID,
+		EngagementID: eng.ID,
+		OrgID:        eng.OrgID,
+		StepNumber:   stepRecord.StepNumber,
+		Action:       stepRecord.Action,
+		Tier:         stepRecord.Tier,
+		Inputs:       stepRecord.Inputs,
+		CreatedAt:    time.Now().UTC(),
+	}
+
+	accum := stepAccum{
+		StepNumber: stepRecord.StepNumber,
+		Action:     stepRecord.Action,
+		Tier:       stepRecord.Tier,
+		StartedAt:  time.Now().UTC(),
+	}
+
+	// Extract technique ID from step inputs
+	if stepRecord.Inputs != nil {
+		var inputs map[string]any
+		_ = json.Unmarshal(stepRecord.Inputs, &inputs)
+		if tid, ok := inputs["technique_id"].(string); ok {
+			accum.TechniqueID = tid
+		}
+	}
+
+	// ─ Executor (skip PolicyEnforcer and ApprovalGate — already approved) ─
+	executor, err := e.agents.Get(agentsdk.AgentExecutor)
+	if err != nil {
+		errMsg := "executor agent not found"
+		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepFailed, &errMsg); updateErr != nil {
+			e.logger.Error("updating step status after executor not found", "error", updateErr)
+		}
+		if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+			e.logger.Error("incrementing failed steps", "error", incErr)
+		}
+		return fmt.Errorf("executor agent not found")
+	}
+
+	execResult, err := executor.HandleTask(ctx, stepTask)
+	if err != nil {
+		errMsg := err.Error()
+		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepFailed, &errMsg); updateErr != nil {
+			e.logger.Error("updating step status after executor error", "error", updateErr)
+		}
+		if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+			e.logger.Error("incrementing failed steps", "error", incErr)
+		}
+		return fmt.Errorf("executor failed: %w", err)
+	}
+
+	accum.CleanupDone = execResult.CleanupDone
+	accum.Findings = append(accum.Findings, execResult.Findings...)
+	accum.EvidenceIDs = append(accum.EvidenceIDs, execResult.EvidenceIDs...)
+
+	if execResult.Status == agentsdk.StatusFailed {
+		errMsg := execResult.Error
+		if setErr := e.steps.SetOutputs(ctx, stepRecord.ID, execResult.Outputs, execResult.EvidenceIDs, execResult.CleanupDone); setErr != nil {
+			e.logger.Error("setting step outputs after executor failure", "error", setErr)
+		}
+		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepFailed, &errMsg); updateErr != nil {
+			e.logger.Error("updating step status after executor failure", "error", updateErr)
+		}
+		if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+			e.logger.Error("incrementing failed steps", "error", incErr)
+		}
+		e.createFindings(ctx, eng, run, stepRecord, execResult.Findings)
+		return e.checkRunCompletion(ctx, run)
+	}
+
+	// ─ EvidenceAgent ─
+	evidenceAgent, _ := e.agents.Get(agentsdk.AgentEvidence)
+	if evidenceAgent != nil {
+		evInputs, _ := json.Marshal(map[string]any{
+			"executor_outputs": execResult.Outputs,
+			"evidence_ids":     execResult.EvidenceIDs,
+			"action":           stepTask.Action,
+		})
+		evResult, err := evidenceAgent.HandleTask(ctx, &agentsdk.Task{
+			ID:           uuid.New().String(),
+			RunID:        run.ID,
+			EngagementID: eng.ID,
+			OrgID:        eng.OrgID,
+			StepNumber:   stepTask.StepNumber,
+			Action:       stepTask.Action,
+			Tier:         stepTask.Tier,
+			Inputs:       evInputs,
+			CreatedAt:    time.Now().UTC(),
+		})
+		if err == nil && evResult != nil {
+			accum.EvidenceIDs = append(accum.EvidenceIDs, evResult.EvidenceIDs...)
+		}
+	}
+
+	// ─ TelemetryVerifier ─
+	tvAgent, _ := e.agents.Get(agentsdk.AgentTelemetryVerifier)
+	if tvAgent != nil {
+		tvInputs, _ := json.Marshal(map[string]any{
+			"siem_connector_id":  connectorMap["siem_connector_id"],
+			"edr_connector_id":   connectorMap["edr_connector_id"],
+			"action":             stepTask.Action,
+			"time_range_minutes": 60,
+		})
+		tvResult, err := tvAgent.HandleTask(ctx, &agentsdk.Task{
+			ID:           uuid.New().String(),
+			RunID:        run.ID,
+			EngagementID: eng.ID,
+			OrgID:        eng.OrgID,
+			StepNumber:   stepTask.StepNumber,
+			Action:       stepTask.Action,
+			Tier:         stepTask.Tier,
+			Inputs:       tvInputs,
+			CreatedAt:    time.Now().UTC(),
+		})
+		if err == nil && tvResult != nil {
+			accum.Findings = append(accum.Findings, tvResult.Findings...)
+			var tvOut map[string]any
+			_ = json.Unmarshal(tvResult.Outputs, &tvOut)
+			if found, ok := tvOut["telemetry_found"].(bool); ok {
+				accum.HasTelemetry = found
+			}
+		}
+	}
+
+	// ─ DetectionEvaluator ─
+	deAgent, _ := e.agents.Get(agentsdk.AgentDetectionEvaluator)
+	if deAgent != nil {
+		deInputs, _ := json.Marshal(map[string]any{
+			"siem_connector_id":  connectorMap["siem_connector_id"],
+			"edr_connector_id":   connectorMap["edr_connector_id"],
+			"action":             stepTask.Action,
+			"expected_technique": accum.TechniqueID,
+			"max_latency_sec":    120,
+		})
+		deResult, err := deAgent.HandleTask(ctx, &agentsdk.Task{
+			ID:           uuid.New().String(),
+			RunID:        run.ID,
+			EngagementID: eng.ID,
+			OrgID:        eng.OrgID,
+			StepNumber:   stepTask.StepNumber,
+			Action:       stepTask.Action,
+			Tier:         stepTask.Tier,
+			Inputs:       deInputs,
+			CreatedAt:    time.Now().UTC(),
+		})
+		if err == nil && deResult != nil {
+			accum.Findings = append(accum.Findings, deResult.Findings...)
+			var deOut map[string]any
+			_ = json.Unmarshal(deResult.Outputs, &deOut)
+			if alerts, ok := deOut["alerts_found"].(float64); ok && alerts > 0 {
+				accum.HasDetection = true
+				accum.HasAlert = true
+			}
+		}
+	}
+
+	// Update step record with combined results
+	if setErr := e.steps.SetOutputs(ctx, stepRecord.ID, execResult.Outputs, accum.EvidenceIDs, accum.CleanupDone); setErr != nil {
+		e.logger.Error("setting step outputs for approved step", "error", setErr)
+	}
+	if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepCompleted, nil); updateErr != nil {
+		e.logger.Error("updating step status to completed for approved step", "error", updateErr)
+	}
+	if incErr := e.runs.IncrementSteps(ctx, run.ID, 1, 0); incErr != nil {
+		e.logger.Error("incrementing completed steps for approved step", "error", incErr)
+	}
+
+	// Create findings from all agents for this step
+	e.createFindings(ctx, eng, run, stepRecord, accum.Findings)
+
+	// Check if the run can be completed
+	return e.checkRunCompletion(ctx, run)
+}
+
+// checkRunCompletion checks if all steps in a run are done and completes the run if so.
+func (e *RunEngine) checkRunCompletion(ctx context.Context, run *models.Run) error {
+	steps, err := e.steps.ListByRunID(ctx, run.ID)
+	if err != nil {
+		return fmt.Errorf("listing steps for completion check: %w", err)
+	}
+
+	for _, s := range steps {
+		if s.Status == models.StepPending || s.Status == models.StepRunning || s.Status == models.StepBlocked {
+			e.logger.Info("run still has pending/blocked steps, not completing yet", "run_id", run.ID, "step_number", s.StepNumber, "status", s.Status)
+			return nil
+		}
+	}
+
+	e.logger.Info("all steps finished, completing run", "run_id", run.ID)
+	return e.runs.UpdateStatus(ctx, run.ID, models.RunCompleted)
 }
 
 // runPostStepAgents runs agents that operate on the full run results.
@@ -765,5 +1024,7 @@ func (e *RunEngine) createSingleFinding(ctx context.Context, eng *models.Engagem
 
 func (e *RunEngine) failRun(ctx context.Context, runID uuid.UUID, reason string) {
 	e.logger.Error("run failed", "run_id", runID, "reason", reason)
-	_ = e.runs.UpdateStatus(ctx, runID, models.RunFailed)
+	if err := e.runs.UpdateStatus(ctx, runID, models.RunFailed); err != nil {
+		e.logger.Error("updating run status to failed", "error", err, "run_id", runID)
+	}
 }

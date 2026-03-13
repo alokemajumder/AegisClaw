@@ -52,6 +52,12 @@ type Handler struct {
 	ReportSvc     *reporting.Service
 	EvidenceStore *evidence.Store
 
+	// Login lockout store (optional — nil disables lockout)
+	LockoutStore LoginLockoutStore
+
+	// NATS client (optional — nil when not configured)
+	NATSClient *natspkg.Client
+
 	// Kill switch state
 	killSwitchMu      sync.RWMutex
 	killSwitchEngaged bool
@@ -155,8 +161,8 @@ func parsePagination(r *http.Request) models.PaginationParams {
 	return p
 }
 
-func readJSON(r *http.Request, v any) error {
-	r.Body = http.MaxBytesReader(nil, r.Body, 1<<20) // 1MB limit
+func readJSON(w http.ResponseWriter, r *http.Request, v any) error {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20) // 1MB limit
 	defer r.Body.Close()
 	return json.NewDecoder(r.Body).Decode(v)
 }

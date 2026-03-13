@@ -1,11 +1,13 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/google/uuid"
 
 	"github.com/alokemajumder/AegisClaw/internal/models"
+	"github.com/alokemajumder/AegisClaw/pkg/connectorsdk"
 )
 
 func (h *Handler) ListFindings(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +72,7 @@ func (h *Handler) UpdateFinding(w http.ResponseWriter, r *http.Request) {
 		Status      *string `json:"status,omitempty"`
 		Remediation *string `json:"remediation,omitempty"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}
@@ -122,7 +124,7 @@ func (h *Handler) CreateFindingTicket(w http.ResponseWriter, r *http.Request) {
 		ConnectorID string `json:"connector_id"`
 		Priority    string `json:"priority"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}
@@ -143,13 +145,46 @@ func (h *Handler) CreateFindingTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ticketID := "TKT-" + finding.ID.String()[:8]
-	if err := h.Findings.SetTicket(r.Context(), id, ticketID, connectorID); err != nil {
-		writeError(w, http.StatusInternalServerError, "db_error", "Failed to create ticket")
+	// Verify the connector belongs to the user's org
+	conn, err := h.ConnInst.GetByID(r.Context(), connectorID)
+	if err != nil || conn.OrgID != claims.OrgID {
+		writeError(w, http.StatusNotFound, "not_found", "Connector not found")
 		return
 	}
 
-	writeData(w, map[string]string{"ticket_id": ticketID, "status": "ticketed"})
+	if h.ConnectorSvc == nil {
+		writeError(w, http.StatusServiceUnavailable, "service_unavailable", "Connector service not configured")
+		return
+	}
+
+	desc := finding.Title
+	if finding.Description != nil {
+		desc = fmt.Sprintf("%s\n\n%s", finding.Title, *finding.Description)
+	}
+	priority := req.Priority
+	if priority == "" {
+		priority = string(finding.Severity)
+	}
+
+	ticketReq := connectorsdk.TicketRequest{
+		Title:       fmt.Sprintf("[AegisClaw] %s", finding.Title),
+		Description: desc,
+		Priority:    priority,
+	}
+
+	result, err := h.ConnectorSvc.CreateTicket(r.Context(), connectorID, ticketReq)
+	if err != nil {
+		h.Logger.Error("creating ticket via connector", "connector_id", connectorID, "error", err)
+		writeError(w, http.StatusInternalServerError, "connector_error", "Failed to create ticket via connector")
+		return
+	}
+
+	if err := h.Findings.SetTicket(r.Context(), id, result.TicketID, connectorID); err != nil {
+		writeError(w, http.StatusInternalServerError, "db_error", "Failed to save ticket reference")
+		return
+	}
+
+	writeData(w, map[string]string{"ticket_id": result.TicketID, "ticket_url": result.TicketURL, "status": "ticketed"})
 }
 
 func (h *Handler) RetestFinding(w http.ResponseWriter, r *http.Request) {

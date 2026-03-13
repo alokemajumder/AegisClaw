@@ -23,6 +23,7 @@ const (
 
 	SubjectApprovalRequest  = "approvals.request"
 	SubjectApprovalDecision = "approvals.decision"
+	SubjectApprovalGranted  = "approvals.granted"
 
 	SubjectKillSwitch = "runs.killswitch"
 )
@@ -84,6 +85,15 @@ type AgentResultMsg struct {
 	Outputs     json.RawMessage `json:"outputs,omitempty"`
 	EvidenceIDs []string        `json:"evidence_ids,omitempty"`
 	Error       string          `json:"error,omitempty"`
+}
+
+// ApprovalGrantedMsg is published when a human approves a Tier 2+ step.
+type ApprovalGrantedMsg struct {
+	RunID        uuid.UUID `json:"run_id"`
+	StepNumber   int       `json:"step_number"`
+	ApprovalID   uuid.UUID `json:"approval_id"`
+	EngagementID uuid.UUID `json:"engagement_id"`
+	OrgID        uuid.UUID `json:"org_id"`
 }
 
 // KillSwitchMsg is published when the kill switch is engaged or disengaged.

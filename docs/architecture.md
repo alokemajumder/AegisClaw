@@ -125,7 +125,7 @@ AegisClaw uses 12 autonomous agents organized into 4 squads. All 12 agents are w
 | **Governance** | ApprovalGate | Creates DB-backed approval records for Tier 2+ actions. Blocks execution until human decision. |
 | **Governance** | ReceiptAgent | Generates HMAC-SHA256 signed, tamper-evident run receipts with full step data, scope snapshot, and evidence manifest. Stores in MinIO. |
 | **Emulation** | Planner | Loads validation playbooks from YAML, filters by allowed tiers, generates ordered step list. |
-| **Emulation** | Executor | Executes playbook steps in-process (gVisor sandboxing planned), maps results. |
+| **Emulation** | Executor | Executes playbook steps in-process with real operations (SIEM queries, EDR health checks, EICAR marker files, allowlisted commands, detection verification, cleanup checks). gVisor sandboxing planned. |
 | **Emulation** | EvidenceAgent | Captures execution artifacts as JSON and uploads to MinIO evidence vault. |
 | **Validation** | TelemetryVerifier | Queries SIEM/EDR connectors for expected telemetry matching the executed technique. |
 | **Validation** | DetectionEvaluator | Queries EDR for alerts, measures detection latency, generates detection gap findings. |
@@ -210,6 +210,8 @@ See `internal/database/migrations/` for the complete SQL schema. Key tables:
 - `coverage_entries` — ATT&CK coverage matrix
 - `policy_packs` — Configurable policy packs
 - `reports` — Generated reports with type, format, and storage reference
+- `token_blacklist` — Revoked JWT tokens (SHA256 hashed, DB-persisted for multi-instance safety)
+- `login_attempts` — Failed login tracking for account lockout (DB-persisted, survives restarts)
 
 ## Kill Switch Flow
 

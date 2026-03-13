@@ -36,12 +36,16 @@ func (a *PlannerAgent) Init(_ context.Context, deps agentsdk.AgentDeps) error {
 
 	// Load playbooks from PlaybookLoader dependency
 	if loader, ok := deps.PlaybookLoader.(*playbook.Loader); ok {
-		pbs, err := loader.LoadAll("playbooks")
+		playbookDir := deps.PlaybookDir
+		if playbookDir == "" {
+			playbookDir = "./playbooks"
+		}
+		pbs, err := loader.LoadAll(playbookDir)
 		if err != nil {
-			a.logger.Warn("failed to load playbooks, will use fallback plan", "error", err)
+			a.logger.Warn("failed to load playbooks, will use fallback plan", "error", err, "dir", playbookDir)
 		} else {
 			a.playbooks = pbs
-			a.logger.Info("planner loaded playbooks", "count", len(pbs))
+			a.logger.Info("planner loaded playbooks", "count", len(pbs), "dir", playbookDir)
 		}
 	} else {
 		a.logger.Warn("no playbook loader available, will use fallback plan")

@@ -32,7 +32,7 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		Password string `json:"password"`
 		Role     string `json:"role"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}
@@ -78,8 +78,14 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	claims, _ := claimsFromRequest(r)
+
 	user, err := h.Users.GetByID(r.Context(), id)
 	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", "User not found")
+		return
+	}
+	if user.OrgID != claims.OrgID {
 		writeError(w, http.StatusNotFound, "not_found", "User not found")
 		return
 	}
@@ -88,7 +94,7 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		Name *string `json:"name,omitempty"`
 		Role *string `json:"role,omitempty"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}
@@ -143,7 +149,7 @@ func (h *Handler) KillSwitch(w http.ResponseWriter, r *http.Request) {
 		Engaged bool   `json:"engaged"`
 		Reason  string `json:"reason"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}

@@ -1,14 +1,21 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ArrowLeft, Loader2, AlertTriangle, ExternalLink, Ticket } from "lucide-react";
 import Link from "next/link";
 import { useApi } from "@/hooks/useApi";
-import { getFinding, createFindingTicket } from "@/lib/api";
-import type { Finding } from "@/lib/types";
+import { getFinding, createFindingTicket, listConnectorInstances } from "@/lib/api";
+import type { Finding, ConnectorInstance } from "@/lib/types";
 
 const severityColor: Record<string, string> = {
   critical: "bg-red-100 text-red-700",
@@ -28,11 +35,32 @@ export default function FindingDetailPage({ params }: { params: Promise<{ id: st
   const { id } = use(params);
   const { data: finding, loading, error, refetch } = useApi<Finding>(() => getFinding(id).then(r => ({ data: r.data })), [id]);
   const [ticketing, setTicketing] = useState(false);
+  const [itsmConnectors, setItsmConnectors] = useState<ConnectorInstance[]>([]);
+  const [selectedConnectorId, setSelectedConnectorId] = useState<string>("");
+  const [connectorsLoading, setConnectorsLoading] = useState(true);
+
+  useEffect(() => {
+    listConnectorInstances(1, 200)
+      .then((resp) => {
+        const itsm = (resp.data ?? []).filter(
+          (c: ConnectorInstance) => c.category === "itsm" && c.enabled
+        );
+        setItsmConnectors(itsm);
+        if (itsm.length === 1) {
+          setSelectedConnectorId(itsm[0].id);
+        }
+      })
+      .catch(() => {
+        setItsmConnectors([]);
+      })
+      .finally(() => setConnectorsLoading(false));
+  }, []);
 
   const handleCreateTicket = async () => {
+    if (!selectedConnectorId) return;
     setTicketing(true);
     try {
-      await createFindingTicket(id, { connector_id: "" });
+      await createFindingTicket(id, { connector_id: selectedConnectorId });
       refetch();
     } catch { /* handled */ } finally {
       setTicketing(false);
@@ -59,6 +87,38 @@ export default function FindingDetailPage({ params }: { params: Promise<{ id: st
     return <div className="text-center py-12 text-slate-400">Finding not found</div>;
   }
 
+  const renderTicketButton = () => {
+    if (finding.ticket_id) return null;
+    if (connectorsLoading) {
+      return <Loader2 className="h-4 w-4 animate-spin text-slate-400" />;
+    }
+    if (itsmConnectors.length === 0) {
+      return (
+        <span className="text-sm text-slate-400">No ITSM connector configured</span>
+      );
+    }
+    return (
+      <div className="flex items-center gap-2">
+        {itsmConnectors.length > 1 && (
+          <Select value={selectedConnectorId} onValueChange={setSelectedConnectorId}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue placeholder="Select connector" />
+            </SelectTrigger>
+            <SelectContent>
+              {itsmConnectors.map((c) => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <Button size="sm" onClick={handleCreateTicket} disabled={ticketing || !selectedConnectorId}>
+          {ticketing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Ticket className="h-4 w-4 mr-1" />}
+          Create Ticket
+        </Button>
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -82,12 +142,7 @@ export default function FindingDetailPage({ params }: { params: Promise<{ id: st
               </Button>
             </a>
           )}
-          {!finding.ticket_id && (
-            <Button size="sm" onClick={handleCreateTicket} disabled={ticketing}>
-              {ticketing ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Ticket className="h-4 w-4 mr-1" />}
-              Create Ticket
-            </Button>
-          )}
+          {renderTicketButton()}
         </div>
       </div>
 

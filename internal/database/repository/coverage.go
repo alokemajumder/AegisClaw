@@ -60,6 +60,19 @@ func (r *CoverageRepo) GetGaps(ctx context.Context, orgID uuid.UUID) ([]models.C
 	return r.scanAll(rows)
 }
 
+// CountByOrgID returns the total number of coverage entries and the number of gaps.
+func (r *CoverageRepo) CountByOrgID(ctx context.Context, orgID uuid.UUID) (entries int, gaps int, err error) {
+	err = r.q.QueryRow(ctx,
+		`SELECT count(*),
+		 count(*) FILTER (WHERE has_telemetry = false OR has_detection = false OR has_alert = false)
+		 FROM coverage_entries WHERE org_id = $1`, orgID,
+	).Scan(&entries, &gaps)
+	if err != nil {
+		return 0, 0, fmt.Errorf("counting coverage: %w", err)
+	}
+	return
+}
+
 func (r *CoverageRepo) scanAll(rows pgx.Rows) ([]models.CoverageEntry, error) {
 	var entries []models.CoverageEntry
 	for rows.Next() {

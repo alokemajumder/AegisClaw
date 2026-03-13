@@ -2,11 +2,26 @@ package playbook
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/alokemajumder/AegisClaw/pkg/connectorsdk"
 )
+
+// connectorQuerier is the subset of connector.Service used by the executor.
+// Using an interface avoids a circular import with internal/connector.
+type connectorQuerier interface {
+	QueryEvents(ctx context.Context, instanceID uuid.UUID, query connectorsdk.EventQuery) (*connectorsdk.EventResult, error)
+}
 
 // StepResult captures the outcome of executing a playbook step.
 type StepResult struct {
@@ -22,12 +37,30 @@ type StepResult struct {
 
 // Executor runs playbook steps in-process (MVP: no gVisor sandbox).
 type Executor struct {
-	logger *slog.Logger
+	logger       *slog.Logger
+	connectorSvc any // *connector.Service — avoids circular import
 }
 
 // NewExecutor creates a new playbook step executor.
-func NewExecutor(logger *slog.Logger) *Executor {
-	return &Executor{logger: logger}
+// connectorSvc should be a *connector.Service (or nil if unavailable).
+func NewExecutor(connectorSvc any, logger *slog.Logger) *Executor {
+	return &Executor{
+		connectorSvc: connectorSvc,
+		logger:       logger,
+	}
+}
+
+// safeCommands is the strict allowlist for execute_encoded_command.
+var safeCommands = map[string]bool{
+	"whoami":     true,
+	"hostname":   true,
+	"ipconfig":   true,
+	"systeminfo": true,
+	"dir":        true,
+	"ls":         true,
+	"uname":      true,
+	"id":         true,
+	"pwd":        true,
 }
 
 // ExecuteStep runs a single playbook step and returns the result.
@@ -55,73 +88,29 @@ func (e *Executor) ExecuteStep(ctx context.Context, pb *Playbook, step *Playbook
 
 	switch step.Action {
 	case "query_telemetry":
-		result.Status = "completed"
-		outputs := map[string]any{
-			"action":  "query_telemetry",
-			"message": "Telemetry query executed",
-			"tier":    pb.Tier,
-		}
-		data, _ := json.Marshal(outputs)
-		result.Outputs = data
+		e.executeQueryTelemetry(ctx, step, result)
 
 	case "check_edr_agents":
-		result.Status = "completed"
-		outputs := map[string]any{
-			"action":  "check_edr_agents",
-			"message": "EDR agent reporting status checked",
-			"tier":    pb.Tier,
-		}
-		data, _ := json.Marshal(outputs)
-		result.Outputs = data
+		e.executeCheckEDRAgents(ctx, step, result)
 
 	case "drop_marker_file":
-		result.Status = "completed"
-		outputs := map[string]any{
-			"action":  "drop_marker_file",
-			"message": "Safe marker file operation simulated",
-			"marker":  "EICAR-like benign test marker",
-			"tier":    pb.Tier,
-		}
-		data, _ := json.Marshal(outputs)
-		result.Outputs = data
-		result.CleanupDone = true
+		e.executeDropMarkerFile(ctx, step, result)
 
 	case "execute_encoded_command":
-		result.Status = "completed"
-		outputs := map[string]any{
-			"action":  "execute_encoded_command",
-			"message": "Benign encoded command execution simulated",
-			"tier":    pb.Tier,
-		}
-		data, _ := json.Marshal(outputs)
-		result.Outputs = data
-		result.CleanupDone = true
+		e.executeEncodedCommand(ctx, step, result)
 
 	case "verify_detection":
-		result.Status = "completed"
-		outputs := map[string]any{
-			"action":  "verify_detection",
-			"message": "Detection verification check completed",
-		}
-		data, _ := json.Marshal(outputs)
-		result.Outputs = data
+		e.executeVerifyDetection(ctx, step, result)
 
 	case "verify_cleanup":
-		result.Status = "completed"
-		result.CleanupDone = true
-		outputs := map[string]any{
-			"action":  "verify_cleanup",
-			"message": "Cleanup verification completed",
-		}
-		data, _ := json.Marshal(outputs)
-		result.Outputs = data
+		e.executeVerifyCleanup(ctx, step, result)
 
 	default:
-		result.Status = "completed"
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("unknown action: %s", step.Action)
 		outputs := map[string]any{
-			"action":  step.Action,
-			"message": fmt.Sprintf("Step '%s' executed", step.Name),
-			"inputs":  step.Inputs,
+			"action": step.Action,
+			"error":  result.Error,
 		}
 		data, _ := json.Marshal(outputs)
 		result.Outputs = data
@@ -140,4 +129,379 @@ func (e *Executor) ExecuteStep(ctx context.Context, pb *Playbook, step *Playbook
 	)
 
 	return result, nil
+}
+
+// getConnectorSvc returns the connector service as a connectorQuerier, or nil.
+func (e *Executor) getConnectorSvc() connectorQuerier {
+	if e.connectorSvc == nil {
+		return nil
+	}
+	if svc, ok := e.connectorSvc.(connectorQuerier); ok {
+		return svc
+	}
+	return nil
+}
+
+// executeQueryTelemetry queries SIEM for recent telemetry via a connector.
+func (e *Executor) executeQueryTelemetry(ctx context.Context, step *PlaybookStep, result *StepResult) {
+	connectorID, _ := step.Inputs["connector_id"].(string)
+	query, _ := step.Inputs["query"].(string)
+
+	svc := e.getConnectorSvc()
+	if connectorID == "" || svc == nil {
+		result.Status = "completed"
+		outputs := map[string]any{
+			"action":          "query_telemetry",
+			"telemetry_found": false,
+			"no_connector":    true,
+			"event_count":     0,
+		}
+		data, _ := json.Marshal(outputs)
+		result.Outputs = data
+		return
+	}
+
+	connUUID, err := uuid.Parse(connectorID)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("invalid connector_id: %v", err)
+		return
+	}
+
+	now := time.Now().UTC()
+	eventQuery := connectorsdk.EventQuery{
+		TimeRange: connectorsdk.TimeRange{
+			Start: now.Add(-15 * time.Minute),
+			End:   now,
+		},
+		Query:      query,
+		MaxResults: 100,
+	}
+
+	eventResult, err := svc.QueryEvents(ctx, connUUID, eventQuery)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("query_telemetry: %v", err)
+		outputs := map[string]any{
+			"action":          "query_telemetry",
+			"telemetry_found": false,
+			"error":           err.Error(),
+		}
+		data, _ := json.Marshal(outputs)
+		result.Outputs = data
+		return
+	}
+
+	result.Status = "completed"
+	outputs := map[string]any{
+		"action":          "query_telemetry",
+		"telemetry_found": eventResult.TotalCount > 0,
+		"event_count":     eventResult.TotalCount,
+		"truncated":       eventResult.Truncated,
+	}
+	data, _ := json.Marshal(outputs)
+	result.Outputs = data
+}
+
+// executeCheckEDRAgents checks EDR agent health via a connector.
+func (e *Executor) executeCheckEDRAgents(ctx context.Context, step *PlaybookStep, result *StepResult) {
+	connectorID, _ := step.Inputs["connector_id"].(string)
+
+	svc := e.getConnectorSvc()
+	if connectorID == "" || svc == nil {
+		result.Status = "completed"
+		outputs := map[string]any{
+			"action":       "check_edr_agents",
+			"agents_found": 0,
+			"no_connector": true,
+		}
+		data, _ := json.Marshal(outputs)
+		result.Outputs = data
+		return
+	}
+
+	connUUID, err := uuid.Parse(connectorID)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("invalid connector_id: %v", err)
+		return
+	}
+
+	now := time.Now().UTC()
+	eventQuery := connectorsdk.EventQuery{
+		TimeRange: connectorsdk.TimeRange{
+			Start: now.Add(-30 * time.Minute),
+			End:   now,
+		},
+		Query:      "agent health status",
+		MaxResults: 500,
+	}
+
+	eventResult, err := svc.QueryEvents(ctx, connUUID, eventQuery)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("check_edr_agents: %v", err)
+		outputs := map[string]any{
+			"action":       "check_edr_agents",
+			"agents_found": 0,
+			"error":        err.Error(),
+		}
+		data, _ := json.Marshal(outputs)
+		result.Outputs = data
+		return
+	}
+
+	result.Status = "completed"
+	healthStatus := "healthy"
+	if eventResult.TotalCount == 0 {
+		healthStatus = "unknown"
+	}
+	outputs := map[string]any{
+		"action":        "check_edr_agents",
+		"agents_found":  eventResult.TotalCount,
+		"health_status": healthStatus,
+	}
+	data, _ := json.Marshal(outputs)
+	result.Outputs = data
+}
+
+// executeDropMarkerFile creates a safe marker file for EDR detection testing.
+func (e *Executor) executeDropMarkerFile(_ context.Context, _ *PlaybookStep, result *StepResult) {
+	tmpDir, err := os.MkdirTemp("", "aegisclaw-marker-*")
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("creating temp directory: %v", err)
+		return
+	}
+
+	markerPath := filepath.Join(tmpDir, "eicar-test.txt")
+	eicar := `X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*`
+
+	if err := os.WriteFile(markerPath, []byte(eicar), 0644); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("writing marker file: %v", err)
+		// Best-effort cleanup of temp dir
+		os.RemoveAll(tmpDir)
+		return
+	}
+
+	result.Status = "completed"
+	result.CleanupDone = false // cleanup happens in verify_cleanup
+	outputs := map[string]any{
+		"action":      "drop_marker_file",
+		"marker_path": markerPath,
+		"marker_dir":  tmpDir,
+		"created_at":  time.Now().UTC().Format(time.RFC3339),
+	}
+	data, _ := json.Marshal(outputs)
+	result.Outputs = data
+
+	e.logger.Info("marker file created", "path", markerPath)
+}
+
+// executeEncodedCommand runs a benign command after strict allowlist validation.
+func (e *Executor) executeEncodedCommand(ctx context.Context, step *PlaybookStep, result *StepResult) {
+	encodedCmd, _ := step.Inputs["command"].(string)
+	if encodedCmd == "" {
+		result.Status = "failed"
+		result.Error = "missing required input: command"
+		return
+	}
+
+	decoded, err := base64.StdEncoding.DecodeString(encodedCmd)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("decoding base64 command: %v", err)
+		return
+	}
+
+	cmdStr := strings.TrimSpace(string(decoded))
+	parts := strings.Fields(cmdStr)
+	if len(parts) == 0 {
+		result.Status = "failed"
+		result.Error = "decoded command is empty"
+		return
+	}
+
+	baseName := parts[0]
+	if !safeCommands[baseName] {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("command %q not in allowlist [whoami, hostname, ipconfig, systeminfo, dir, ls, uname, id, pwd]", baseName)
+		outputs := map[string]any{
+			"action":  "execute_encoded_command",
+			"blocked": true,
+			"command": baseName,
+		}
+		data, _ := json.Marshal(outputs)
+		result.Outputs = data
+		return
+	}
+
+	// 30-second timeout for command execution
+	cmdCtx, cmdCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cmdCancel()
+
+	startTime := time.Now()
+	cmd := exec.CommandContext(cmdCtx, parts[0], parts[1:]...)
+	stdout, err := cmd.CombinedOutput()
+	elapsed := time.Since(startTime)
+
+	exitCode := 0
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		} else {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("executing command: %v", err)
+			outputs := map[string]any{
+				"action":          "execute_encoded_command",
+				"command":         baseName,
+				"error":           err.Error(),
+				"execution_time":  elapsed.String(),
+			}
+			data, _ := json.Marshal(outputs)
+			result.Outputs = data
+			return
+		}
+	}
+
+	result.Status = "completed"
+	result.CleanupDone = true
+	outputs := map[string]any{
+		"action":         "execute_encoded_command",
+		"command":        baseName,
+		"output":         string(stdout),
+		"exit_code":      exitCode,
+		"execution_time": elapsed.String(),
+	}
+	data, _ := json.Marshal(outputs)
+	result.Outputs = data
+
+	e.logger.Info("encoded command executed",
+		"command", baseName,
+		"exit_code", exitCode,
+		"duration", elapsed,
+	)
+}
+
+// executeVerifyDetection checks if SIEM/EDR detected the emulation activity.
+func (e *Executor) executeVerifyDetection(ctx context.Context, step *PlaybookStep, result *StepResult) {
+	connectorID, _ := step.Inputs["connector_id"].(string)
+	techniqueID, _ := step.Inputs["technique_id"].(string)
+
+	svc := e.getConnectorSvc()
+	if connectorID == "" || svc == nil {
+		result.Status = "completed"
+		outputs := map[string]any{
+			"action":       "verify_detection",
+			"detected":     false,
+			"no_connector": true,
+		}
+		data, _ := json.Marshal(outputs)
+		result.Outputs = data
+		return
+	}
+
+	connUUID, err := uuid.Parse(connectorID)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("invalid connector_id: %v", err)
+		return
+	}
+
+	now := time.Now().UTC()
+	query := techniqueID
+	if query == "" {
+		query = "alert"
+	}
+
+	eventQuery := connectorsdk.EventQuery{
+		TimeRange: connectorsdk.TimeRange{
+			Start: now.Add(-5 * time.Minute),
+			End:   now,
+		},
+		Query:      query,
+		MaxResults: 50,
+	}
+
+	startTime := time.Now()
+	eventResult, err := svc.QueryEvents(ctx, connUUID, eventQuery)
+	latency := time.Since(startTime)
+
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("verify_detection: %v", err)
+		outputs := map[string]any{
+			"action":   "verify_detection",
+			"detected": false,
+			"error":    err.Error(),
+		}
+		data, _ := json.Marshal(outputs)
+		result.Outputs = data
+		return
+	}
+
+	detected := eventResult.TotalCount > 0
+	result.Status = "completed"
+	outputs := map[string]any{
+		"action":       "verify_detection",
+		"detected":     detected,
+		"alert_count":  eventResult.TotalCount,
+		"latency":      latency.String(),
+		"technique_id": techniqueID,
+	}
+	data, _ := json.Marshal(outputs)
+	result.Outputs = data
+}
+
+// executeVerifyCleanup verifies that a marker file was cleaned up (by EDR or self).
+func (e *Executor) executeVerifyCleanup(_ context.Context, step *PlaybookStep, result *StepResult) {
+	markerPath, _ := step.Inputs["marker_path"].(string)
+	if markerPath == "" {
+		result.Status = "failed"
+		result.Error = "missing required input: marker_path"
+		return
+	}
+
+	_, err := os.Stat(markerPath)
+	if os.IsNotExist(err) {
+		// File is gone — EDR or another process removed it
+		result.Status = "completed"
+		result.CleanupDone = true
+		outputs := map[string]any{
+			"action":           "verify_cleanup",
+			"cleanup_confirmed": true,
+			"self_cleaned":      false,
+			"marker_path":       markerPath,
+		}
+		data, _ := json.Marshal(outputs)
+		result.Outputs = data
+		e.logger.Info("marker file already removed (likely by EDR)", "path", markerPath)
+		return
+	}
+
+	// File still exists — self-cleanup
+	parentDir := filepath.Dir(markerPath)
+	removeErr := os.RemoveAll(parentDir)
+	selfCleaned := removeErr == nil
+
+	result.Status = "completed"
+	result.CleanupDone = selfCleaned
+	outputs := map[string]any{
+		"action":            "verify_cleanup",
+		"cleanup_confirmed": selfCleaned,
+		"self_cleaned":      true,
+		"marker_path":       markerPath,
+	}
+	if removeErr != nil {
+		outputs["cleanup_error"] = removeErr.Error()
+	}
+	data, _ := json.Marshal(outputs)
+	result.Outputs = data
+
+	if selfCleaned {
+		e.logger.Info("marker file self-cleaned", "path", markerPath)
+	} else {
+		e.logger.Warn("failed to self-clean marker file", "path", markerPath, "error", removeErr)
+	}
 }

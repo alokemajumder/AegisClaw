@@ -152,7 +152,7 @@ func TestValidate_ProductionAllValid(t *testing.T) {
 	cfg := &Config{
 		Server:   ServerConfig{APIPort: 8080, GRPCBasePort: 9090, Environment: "production"},
 		Database: DatabaseConfig{Host: "db.prod", MaxConns: 50, SSLMode: "require", Password: "strong-prod-password"},
-		Auth:     AuthConfig{JWTSecret: "a-very-long-secret-that-is-at-least-32-chars"},
+		Auth:     AuthConfig{JWTSecret: "a-very-long-secret-that-is-at-least-32-chars", ReceiptHMACKey: "a-strong-receipt-hmac-key-for-prod"},
 		MinIO:    MinIOConfig{UseSSL: true, SecretKey: "prod-minio-secret-key"},
 	}
 	assert.NoError(t, cfg.Validate())

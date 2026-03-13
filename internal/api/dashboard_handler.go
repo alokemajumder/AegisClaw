@@ -39,7 +39,8 @@ func (h *Handler) DashboardSummary(w http.ResponseWriter, r *http.Request) {
 	assetCount, _ := h.Assets.CountByOrgID(ctx, claims.OrgID)
 	totalEngagements, activeEngagements, _ := h.Engagements.CountByOrgID(ctx, claims.OrgID)
 	_, activeRuns, completedRuns, _ := h.Runs.CountByOrgID(ctx, claims.OrgID)
-	totalFindings, criticalFindings, highFindings, _ := h.Findings.CountByOrgID(ctx, claims.OrgID)
+	totalFindings, criticalFindings, highFindings, mediumFindings, lowFindings, _ := h.Findings.CountByOrgIDFull(ctx, claims.OrgID)
+	coverageEntries, coverageGaps, _ := h.Coverage.CountByOrgID(ctx, claims.OrgID)
 
 	connectors, _ := h.ConnInst.ListByOrgID(ctx, claims.OrgID)
 	healthyConnectors := 0
@@ -50,14 +51,18 @@ func (h *Handler) DashboardSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeData(w, map[string]any{
-		"assets":              assetCount,
+		"total_assets":        assetCount,
 		"active_engagements":  activeEngagements,
 		"total_engagements":   totalEngagements,
-		"active_runs":         activeRuns,
+		"running_runs":        activeRuns,
 		"completed_runs":      completedRuns,
 		"total_findings":      totalFindings,
 		"critical_findings":   criticalFindings,
 		"high_findings":       highFindings,
+		"medium_findings":     mediumFindings,
+		"low_findings":        lowFindings,
+		"coverage_entries":    coverageEntries,
+		"coverage_gaps":       coverageGaps,
 		"connectors":          len(connectors),
 		"healthy_connectors":  healthyConnectors,
 		"kill_switch_engaged": h.IsKillSwitchEngaged(),
@@ -105,10 +110,24 @@ func (h *Handler) DashboardHealth(w http.ResponseWriter, r *http.Request) {
 		health = append(health, ch)
 	}
 
-	dbHealthy := h.DB.Ping(r.Context()) == nil
+	dbStatus := "ok"
+	if err := h.DB.Ping(r.Context()); err != nil {
+		dbStatus = "error"
+	}
+
+	natsStatus := "unknown"
+	if h.NATSClient != nil {
+		if h.NATSClient.HealthCheck() == nil {
+			natsStatus = "ok"
+		} else {
+			natsStatus = "error"
+		}
+	}
 
 	writeData(w, map[string]any{
-		"database":   dbHealthy,
-		"connectors": health,
+		"database":            dbStatus,
+		"nats":                natsStatus,
+		"kill_switch_engaged": h.IsKillSwitchEngaged(),
+		"connectors":          health,
 	})
 }

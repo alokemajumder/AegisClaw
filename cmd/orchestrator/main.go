@@ -104,7 +104,7 @@ func main() {
 
 	// Playbook loader and executor
 	pbLoader := playbook.NewLoader(logger)
-	pbExecutor := playbook.NewExecutor(logger)
+	pbExecutor := playbook.NewExecutor(connectorSvc, logger)
 
 	// Kill switch
 	killSwitch := orchestrator.NewKillSwitch()
@@ -119,6 +119,7 @@ func main() {
 		PlaybookExecutor:      pbExecutor,
 		ReceiptHMACKey:        []byte(cfg.Auth.ReceiptHMACKey),
 		ConnectorInstanceRepo: connInstanceRepo,
+		PlaybookDir:           cfg.Server.PlaybookDir,
 	}
 
 	// Agent registry (initializes all agents with deps)

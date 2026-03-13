@@ -31,7 +31,7 @@ func (h *Handler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		ReportType string `json:"report_type"`
 		Format     string `json:"format"`
 	}
-	if err := readJSON(r, &req); err != nil {
+	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}
@@ -62,23 +62,8 @@ func (h *Handler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fallback: create record without content generation
-	report := &models.Report{
-		OrgID:       claims.OrgID,
-		Title:       req.Title,
-		ReportType:  req.ReportType,
-		Status:      "generating",
-		Format:      req.Format,
-		GeneratedBy: &claims.UserID,
-		Metadata:    json.RawMessage(`{}`),
-	}
-	if err := h.Reports.Create(r.Context(), report); err != nil {
-		h.Logger.Error("creating report", "error", err)
-		writeError(w, http.StatusInternalServerError, "db_error", "Failed to create report")
-		return
-	}
-	_ = h.Reports.UpdateStatus(r.Context(), report.ID, "completed", "reports/"+report.ID.String()+".md")
-	writeJSON(w, http.StatusCreated, models.APIResponse{Data: report})
+	// Report generation service not wired — return 503
+	writeError(w, http.StatusServiceUnavailable, "service_unavailable", "Report generation service not configured")
 }
 
 func (h *Handler) GetReport(w http.ResponseWriter, r *http.Request) {

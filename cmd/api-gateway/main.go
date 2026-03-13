@@ -18,10 +18,22 @@ import (
 	"github.com/alokemajumder/AegisClaw/internal/api"
 	"github.com/alokemajumder/AegisClaw/internal/auth"
 	"github.com/alokemajumder/AegisClaw/internal/config"
+	"github.com/alokemajumder/AegisClaw/internal/connector"
 	"github.com/alokemajumder/AegisClaw/internal/database"
+	"github.com/alokemajumder/AegisClaw/internal/database/repository"
+	"github.com/alokemajumder/AegisClaw/internal/evidence"
 	"github.com/alokemajumder/AegisClaw/internal/metrics"
 	natspkg "github.com/alokemajumder/AegisClaw/internal/nats"
 	"github.com/alokemajumder/AegisClaw/internal/observability"
+	"github.com/alokemajumder/AegisClaw/internal/reporting"
+	"github.com/alokemajumder/AegisClaw/pkg/connectorsdk"
+
+	// Connector implementations
+	"github.com/alokemajumder/AegisClaw/connectors/edr/defender"
+	"github.com/alokemajumder/AegisClaw/connectors/itsm/servicenow"
+	"github.com/alokemajumder/AegisClaw/connectors/notifications/slack"
+	"github.com/alokemajumder/AegisClaw/connectors/notifications/teams"
+	"github.com/alokemajumder/AegisClaw/connectors/siem/sentinel"
 )
 
 func main() {
@@ -76,8 +88,48 @@ func main() {
 	}
 	tokenSvc := auth.NewTokenService(ctx, cfg.Auth)
 
+	// Persistent token blacklist
+	tokenBlacklistRepo := repository.NewTokenBlacklistRepo(pool)
+	tokenSvc.SetBlacklistStore(tokenBlacklistRepo)
+
 	// Handler with all dependencies
 	h := api.NewHandler(pool, tokenSvc, publisher, logger)
+
+	// Persistent login lockout
+	loginAttemptRepo := repository.NewLoginAttemptRepo(pool)
+	h.LockoutStore = loginAttemptRepo
+
+	// Store NATS client on handler for health checks
+	if natsClient != nil {
+		h.NATSClient = natsClient
+	}
+
+	// Connector registry + service
+	connRegistry := connectorsdk.NewRegistry()
+	_ = connRegistry.Register("sentinel", func() connectorsdk.Connector { return sentinel.New() })
+	_ = connRegistry.Register("defender", func() connectorsdk.Connector { return defender.New() })
+	_ = connRegistry.Register("servicenow", func() connectorsdk.Connector { return servicenow.New() })
+	_ = connRegistry.Register("teams", func() connectorsdk.Connector { return teams.New() })
+	_ = connRegistry.Register("slack", func() connectorsdk.Connector { return slack.New() })
+	connInstanceRepo := repository.NewConnectorInstanceRepo(pool)
+	connectorSvc := connector.NewService(connRegistry, connInstanceRepo, logger)
+	defer connectorSvc.Close()
+	h.ConnectorSvc = connectorSvc
+
+	// Evidence store (optional — log warning if unavailable)
+	evStore, err := evidence.NewStore(ctx, cfg.MinIO, logger)
+	if err != nil {
+		logger.Warn("evidence store unavailable (continuing without)", "error", err)
+	} else {
+		h.EvidenceStore = evStore
+	}
+
+	// Reporting service (requires evidence store for storage, but works without)
+	h.ReportSvc = reporting.NewService(
+		h.Findings, h.Runs, h.Coverage, h.Assets, h.Reports,
+		evStore, // may be nil — service handles it
+		logger,
+	)
 
 	r := chi.NewRouter()
 
@@ -141,11 +193,15 @@ func main() {
 			r.With(tokenSvc.Middleware).Post("/logout", h.Logout)
 		})
 
+		// Role middleware helpers
+		requireOperator := auth.RequireRole("admin", "operator")
+		requireApprover := auth.RequireRole("admin", "operator", "approver")
+
 		// Authenticated routes
 		r.Group(func(r chi.Router) {
 			r.Use(tokenSvc.Middleware)
 
-			// Dashboard
+			// Dashboard (all authenticated users)
 			r.Get("/dashboard/summary", h.DashboardSummary)
 			r.Get("/dashboard/activity", h.DashboardActivity)
 			r.Get("/dashboard/health", h.DashboardHealth)
@@ -153,24 +209,26 @@ func main() {
 			// Assets
 			r.Route("/assets", func(r chi.Router) {
 				r.Get("/", h.ListAssets)
-				r.Post("/", h.CreateAsset)
 				r.Get("/{assetID}", h.GetAsset)
-				r.Put("/{assetID}", h.UpdateAsset)
-				r.Delete("/{assetID}", h.DeleteAsset)
 				r.Get("/{assetID}/findings", h.ListAssetFindings)
+
+				r.With(requireOperator).Post("/", h.CreateAsset)
+				r.With(requireOperator).Put("/{assetID}", h.UpdateAsset)
+				r.With(requireOperator).Delete("/{assetID}", h.DeleteAsset)
 			})
 
 			// Engagements
 			r.Route("/engagements", func(r chi.Router) {
 				r.Get("/", h.ListEngagements)
-				r.Post("/", h.CreateEngagement)
 				r.Get("/{engagementID}", h.GetEngagement)
-				r.Put("/{engagementID}", h.UpdateEngagement)
-				r.Delete("/{engagementID}", h.DeleteEngagement)
-				r.Post("/{engagementID}/activate", h.ActivateEngagement)
-				r.Post("/{engagementID}/pause", h.PauseEngagement)
 				r.Get("/{engagementID}/runs", h.ListEngagementRuns)
-				r.Post("/{engagementID}/runs", h.TriggerRun)
+
+				r.With(requireOperator).Post("/", h.CreateEngagement)
+				r.With(requireOperator).Put("/{engagementID}", h.UpdateEngagement)
+				r.With(requireOperator).Delete("/{engagementID}", h.DeleteEngagement)
+				r.With(requireOperator).Post("/{engagementID}/activate", h.ActivateEngagement)
+				r.With(requireOperator).Post("/{engagementID}/pause", h.PauseEngagement)
+				r.With(requireOperator).Post("/{engagementID}/runs", h.TriggerRun)
 			})
 
 			// Runs
@@ -179,18 +237,20 @@ func main() {
 				r.Get("/{runID}", h.GetRun)
 				r.Get("/{runID}/steps", h.ListRunSteps)
 				r.Get("/{runID}/receipt", h.GetRunReceipt)
-				r.Post("/{runID}/kill", h.KillRun)
-				r.Post("/{runID}/pause", h.PauseRun)
-				r.Post("/{runID}/resume", h.ResumeRun)
+
+				r.With(requireOperator).Post("/{runID}/kill", h.KillRun)
+				r.With(requireOperator).Post("/{runID}/pause", h.PauseRun)
+				r.With(requireOperator).Post("/{runID}/resume", h.ResumeRun)
 			})
 
 			// Findings
 			r.Route("/findings", func(r chi.Router) {
 				r.Get("/", h.ListFindings)
 				r.Get("/{findingID}", h.GetFinding)
-				r.Put("/{findingID}", h.UpdateFinding)
-				r.Post("/{findingID}/ticket", h.CreateFindingTicket)
-				r.Post("/{findingID}/retest", h.RetestFinding)
+
+				r.With(requireOperator).Put("/{findingID}", h.UpdateFinding)
+				r.With(requireOperator).Post("/{findingID}/ticket", h.CreateFindingTicket)
+				r.With(requireOperator).Post("/{findingID}/retest", h.RetestFinding)
 			})
 
 			// Connectors
@@ -198,37 +258,40 @@ func main() {
 				r.Get("/registry", h.ListConnectorRegistry)
 				r.Get("/registry/{connectorType}", h.GetConnectorType)
 				r.Get("/", h.ListConnectorInstances)
-				r.Post("/", h.CreateConnectorInstance)
 				r.Get("/{connectorID}", h.GetConnectorInstance)
-				r.Put("/{connectorID}", h.UpdateConnectorInstance)
-				r.Delete("/{connectorID}", h.DeleteConnectorInstance)
-				r.Patch("/{connectorID}/enable", h.ToggleConnector)
-				r.Post("/{connectorID}/test", h.TestConnector)
 				r.Get("/{connectorID}/health", h.GetConnectorHealth)
-				r.Post("/{connectorID}/health/check", h.TriggerHealthCheck)
+
+				r.With(requireOperator).Post("/", h.CreateConnectorInstance)
+				r.With(requireOperator).Put("/{connectorID}", h.UpdateConnectorInstance)
+				r.With(requireOperator).Delete("/{connectorID}", h.DeleteConnectorInstance)
+				r.With(requireOperator).Patch("/{connectorID}/enable", h.ToggleConnector)
+				r.With(requireOperator).Post("/{connectorID}/test", h.TestConnector)
+				r.With(requireOperator).Post("/{connectorID}/health/check", h.TriggerHealthCheck)
 			})
 
 			// Approvals
 			r.Route("/approvals", func(r chi.Router) {
 				r.Get("/", h.ListApprovals)
 				r.Get("/{approvalID}", h.GetApproval)
-				r.Post("/{approvalID}/approve", h.ApproveRequest)
-				r.Post("/{approvalID}/deny", h.DenyRequest)
+
+				r.With(requireApprover).Post("/{approvalID}/approve", h.ApproveRequest)
+				r.With(requireApprover).Post("/{approvalID}/deny", h.DenyRequest)
 			})
 
 			// Reports
 			r.Route("/reports", func(r chi.Router) {
 				r.Get("/", h.ListReports)
-				r.Post("/generate", h.GenerateReport)
 				r.Get("/{reportID}", h.GetReport)
 				r.Get("/{reportID}/download", h.DownloadReport)
+
+				r.With(requireOperator).Post("/generate", h.GenerateReport)
 			})
 
-			// Coverage
+			// Coverage (all authenticated users)
 			r.Get("/coverage", h.GetCoverage)
 			r.Get("/coverage/gaps", h.GetCoverageGaps)
 
-			// Admin
+			// Admin (admin-only)
 			r.Route("/admin", func(r chi.Router) {
 				r.Use(auth.RequireRole("admin"))
 				r.Get("/users", h.ListUsers)

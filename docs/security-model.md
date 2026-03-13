@@ -19,6 +19,7 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - Safe network behavior simulation
 - **Mandatory cleanup verification** — step is not marked complete until cleanup is confirmed
 - Rollback on failure
+- **Command allowlist**: The `execute_encoded_command` playbook action enforces a strict allowlist of permitted commands — arbitrary command execution is blocked at the executor level
 
 ### Tier 2 — Sensitive Validation (Requires Human Approval)
 - Actions that may impact authentication flows
@@ -64,6 +65,7 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - States: Closed (normal) → Open (rejecting) → Half-Open (testing recovery)
 - Configurable thresholds and reset timeouts
 - Unhealthy connectors are isolated without affecting other connectors
+- Circuit breakers are wired to **all connector calls**: QueryEvents, CreateTicket, and SendNotification — not just health checks
 
 ### Kill Switch
 - **Global kill switch**: Immediately stops all active runs across all engagements
@@ -85,9 +87,15 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 
 ### Account Lockout
 - **5 failed login attempts** trigger a **15-minute lockout** per email address
-- Lockout is tracked in-memory at the API gateway
+- Lockout is persisted to PostgreSQL (`login_attempts` table, migration 000003) — survives API gateway restarts and works across multiple instances
 - Lockout counter resets on successful authentication
 - Protects against brute-force credential attacks
+
+### Token Blacklisting
+- Revoked tokens are persisted to PostgreSQL (`token_blacklist` table, migration 000003) — survives restarts and is multi-instance safe
+- Tokens are stored as SHA256 hashes (not plaintext) for security
+- Periodic cleanup removes expired blacklist entries
+- `logout()` calls server-side token revocation before clearing local state
 
 ### Auth Rate Limiting
 - Login and refresh endpoints are rate-limited to **10 requests per minute per IP** (stricter than the global 100/min API rate limit)
@@ -107,9 +115,12 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 | `viewer` | Read-only access to all entities |
 
 ### Authorization Enforcement
-- RBAC checked at API gateway middleware level (every request)
-- Policy changes require `admin` role
-- Tier 2+ approvals require `admin` or `approver` role
+- RBAC enforced on **all route groups** at the API gateway middleware level (every request)
+- **Viewer** role can only perform GET requests (read-only access)
+- **Operator** and **admin** roles can create, update, and delete resources
+- **Approver** role is required on approval endpoints (approve/deny)
+- Policy changes and user management require `admin` role
+- UpdateUser includes org_id ownership check to prevent cross-tenant escalation
 
 ### Tenant Isolation
 - All 30+ API handlers enforce **org_id ownership checks** on every data access
