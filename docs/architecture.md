@@ -52,43 +52,66 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 
 ## Services
 
+| Service | gRPC Port | Health Port | Health Endpoint |
+|---------|-----------|-------------|-----------------|
+| API Gateway | — | 8080 | `:8080/healthz` |
+| Orchestrator | 9090 | 10090 | `:10090/healthz` |
+| Runner | 9091 | 10091 | `:10091/healthz` |
+| Evidence Service | 9092 | 10092 | `:10092/healthz` |
+| Connector Service | 9093 | 10093 | `:10093/healthz` |
+| Reporting Service | 9094 | 10094 | `:10094/healthz` |
+| Ollama Bridge | 9095 | 10095 | `:10095/healthz` |
+| Scheduler | 9096 | 10096 | `:10096/healthz` |
+
 ### API Gateway (`:8080`)
 - **Technology**: Go + Chi router
 - **Role**: REST API, authentication (JWT + SSO), RBAC, rate limiting, CORS
 - **Communicates with**: All internal services via gRPC
+- **Health**: `:8080/healthz`
 
 ### Orchestrator (`:9090`)
 - **Technology**: Go + gRPC + NATS
 - **Role**: OpenClaw engine — manages agent lifecycle, run execution, policy enforcement
 - **Communicates with**: NATS (pub/sub for agent tasks), all services via gRPC
+- **Health**: `:10090/healthz`
 
 ### Runner (`:9091`)
 - **Technology**: Go + gRPC + gVisor
 - **Role**: Sandboxed execution of validation steps with cleanup verification
 - **Communicates with**: Orchestrator (task receipt), Evidence Service (artifact storage)
+- **Health**: `:10091/healthz`
 
 ### Evidence Service (`:9092`)
 - **Technology**: Go + gRPC + MinIO
 - **Role**: Evidence vault CRUD, receipt storage, artifact management
 - **Storage**: MinIO (S3-compatible) for blob storage
+- **Health**: `:10092/healthz`
 
 ### Connector Service (`:9093`)
 - **Technology**: Go + gRPC + Connector SDK
 - **Role**: Connector lifecycle management, execution proxy, health monitoring
 - **Communicates with**: External platforms (SIEM, EDR, ITSM, etc.)
+- **Health**: `:10093/healthz`
 
 ### Reporting Service (`:9094`)
 - **Technology**: Go + gRPC
 - **Role**: Report generation in PDF, Markdown, and JSON formats
+- **Health**: `:10094/healthz`
 
 ### Ollama Bridge (`:9095`)
 - **Technology**: Go + gRPC
 - **Role**: LLM proxy with prompt governance, evidence anchoring, model allowlisting
 - **Communicates with**: Ollama (`:11434`)
+- **Health**: `:10095/healthz`
 
 ### Scheduler (`:9096`)
 - **Technology**: Go + gRPC + cron
 - **Role**: Engagement scheduling, blackout enforcement, run triggering
+- **Health**: `:10096/healthz`
+
+### Health Checks
+
+All services expose an HTTP health endpoint at `/healthz`. The API gateway serves its health check on its primary HTTP port (`:8080/healthz`). All other services run a dedicated health HTTP server on a port offset of +1000 from their gRPC port (e.g., Orchestrator gRPC on `:9090`, health on `:10090`). The health endpoint returns HTTP 200 with `{"status": "ok"}` when the service is ready, or HTTP 503 when unhealthy. These endpoints are used by Docker health checks, Kubernetes probes, and the monitoring stack.
 
 ## Data Flow: Validation Run
 
@@ -148,6 +171,29 @@ See `internal/database/migrations/` for the complete SQL schema. Key tables:
 - `audit_log` — Immutable audit trail
 - `coverage_entries` — ATT&CK coverage matrix
 - `policy_packs` — Configurable policy packs
+- `reports` — Generated reports with type, format, and storage reference
+
+## Kill Switch Flow
+
+```
+1. Admin triggers kill switch
+   └─► API Gateway: POST /api/v1/admin/system/kill-switch
+
+2. API Gateway:
+   a. Sets in-memory kill switch state
+   b. Updates all running runs to "killed" in PostgreSQL
+   c. Publishes kill switch event to NATS (runs.killswitch)
+   d. Writes audit log entry (persists across restarts)
+
+3. Orchestrator:
+   a. Receives NATS kill switch event
+   b. Cancels all in-flight run contexts (goroutines)
+   c. Before each step: checks killSwitch.IsEngaged()
+
+4. On restart:
+   a. API Gateway queries last kill switch event from audit_log
+   b. Restores engaged/disengaged state
+```
 
 ## Observability
 

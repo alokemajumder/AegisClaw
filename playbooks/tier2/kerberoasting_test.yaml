@@ -1,0 +1,61 @@
+id: tier2-kerberoasting-test
+name: Kerberoasting Detection Test
+description: Request service tickets for SPN-registered accounts to test Kerberoasting detection capabilities
+tier: 2
+technique_id: "T1558.003"
+asset_types:
+  - identity
+  - server
+tags:
+  - detection-test
+  - credential-access
+  - kerberoasting
+  - active-directory
+steps:
+  - name: Request TGS tickets for SPN accounts
+    agent_type: executor
+    action: request_service_tickets
+    description: Request Kerberos TGS tickets for known SPN-registered service accounts to simulate Kerberoasting activity
+    inputs:
+      request_type: tgs_ticket_request
+      spn_target: "MSSQLSvc/aegisclaw-test.local:1433"
+      encryption_type: RC4_HMAC_MD5
+      description: "Benign TGS ticket request for Kerberoasting detection testing"
+    expected_telemetry:
+      source: identity_provider
+      event_type: kerberos_ticket_request
+      search_query: "TGS request RC4 SPN"
+      max_latency_sec: 120
+      indicators:
+        service_name: "MSSQLSvc/aegisclaw-test.local"
+        encryption_type: RC4_HMAC_MD5
+        action: tgs_request
+    cleanup:
+      action: purge_tickets
+      description: Purge any cached Kerberos tickets from the test session
+      inputs:
+        purge_type: current_session
+    timeout_seconds: 60
+  - name: Verify Kerberoasting alert
+    agent_type: detection_evaluator
+    action: verify_detection
+    description: Check that the identity provider or SIEM raised an alert for the Kerberoasting activity pattern
+    inputs:
+      check_type: alert_fired
+      expected_severity: high
+      expected_technique: "T1558.003"
+      max_latency_sec: 120
+    timeout_seconds: 120
+  - name: Verify SIEM event correlation
+    agent_type: telemetry_verifier
+    action: query_telemetry
+    description: Verify that SIEM received and correlated the Kerberos ticket request events
+    inputs:
+      time_range_minutes: 30
+      min_expected_events: 1
+      event_category: kerberos_authentication
+    expected_telemetry:
+      source: siem
+      event_type: kerberos_ticket_request
+      max_latency_sec: 300
+    timeout_seconds: 30

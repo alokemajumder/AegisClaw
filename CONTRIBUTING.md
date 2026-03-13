@@ -36,10 +36,11 @@ Thank you for your interest in contributing to AegisClaw! This document provides
 ## Development Setup
 
 ### Prerequisites
-- Go 1.23+
+- Go 1.25+
 - Node.js 20+
-- Docker and Docker Compose
+- Docker 24+ and Docker Compose v2
 - Make
+- At least 8 GB RAM for the full stack
 
 ### Getting Started
 
@@ -48,19 +49,38 @@ Thank you for your interest in contributing to AegisClaw! This document provides
 git clone https://github.com/YOUR_USERNAME/AegisClaw.git
 cd AegisClaw
 
-# Start infrastructure
+# Configure environment
+cp .env.example .env
+# Review .env and set AEGISCLAW_AUTH_JWT_SECRET
+
+# Start infrastructure (PostgreSQL, NATS, MinIO, Prometheus, Grafana, Jaeger)
 make infra-up
+
+# Run database migrations
+make migrate
 
 # Install dependencies
 go mod tidy
 cd web && npm install && cd ..
 
-# Run all tests
+# Run all tests (137 tests, 376 subtests across 14 packages)
 make test
 
 # Run linters
 make lint
 ```
+
+### Running Services Locally
+
+```bash
+make dev-api          # API Gateway on :8080
+make dev-orchestrator # Orchestrator on :9090
+make dev-web          # Frontend on :3000 (proxies API via Next.js rewrites)
+```
+
+### Service Health Checks
+
+All Go services expose `/healthz` HTTP endpoints. The API gateway uses port 8080; other services use their gRPC port + 1000 (e.g., Orchestrator gRPC on :9090, health on :10090).
 
 ## Coding Standards
 
@@ -113,10 +133,13 @@ make lint
 Look for issues tagged with `good-first-issue` — these are accessible for newcomers.
 
 ### Connector Development
-Adding new connectors is a great way to contribute. See [Connector Development Guide](docs/connector-development.md).
+Adding new connectors is a great way to contribute. The platform currently ships 5 connectors (Sentinel, Defender, ServiceNow, Teams, Slack) with many more planned. See [Connector Development Guide](docs/connector-development.md).
 
 ### Playbook Library
-Expanding the validation playbook library helps everyone. See [Playbook Authoring Guide](docs/playbook-authoring.md).
+Expanding the validation playbook library helps everyone. Currently 13 playbooks across Tier 0-2. See [Playbook Authoring Guide](docs/playbook-authoring.md).
+
+### Testing
+We currently have 137 unit tests across 14 packages. Integration tests using `testcontainers-go` for real Postgres/NATS/MinIO are welcome.
 
 ### Documentation
 Improving documentation is always welcome — tutorials, examples, and clarifications.

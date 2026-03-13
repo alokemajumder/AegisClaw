@@ -1,0 +1,39 @@
+id: tier0-identity-provider-health
+name: Identity Provider Health Check
+description: Verify that the identity provider (Entra ID) is logging authentication events including sign-ins and audit logs
+tier: 0
+technique_id: "DS0028"
+asset_types:
+  - identity
+  - cloud_account
+tags:
+  - telemetry
+  - health-check
+  - identity
+  - entra-id
+steps:
+  - name: Query sign-in events
+    agent_type: telemetry_verifier
+    action: query_telemetry
+    description: Query the identity provider connector for recent sign-in events within the last hour
+    inputs:
+      time_range_minutes: 60
+      min_expected_events: 1
+      event_category: sign_in
+    expected_telemetry:
+      source: identity_provider
+      event_type: logon_session
+      max_latency_sec: 300
+    timeout_seconds: 30
+  - name: Verify authentication audit trail
+    agent_type: telemetry_verifier
+    action: verify_detection
+    description: Check that authentication audit logs are being captured with sufficient detail
+    inputs:
+      check_type: audit_trail_completeness
+      required_fields:
+        - user_principal_name
+        - timestamp
+        - result_status
+        - ip_address
+    timeout_seconds: 30

@@ -1,0 +1,88 @@
+type: object
+required:
+  - id
+  - name
+  - description
+  - tier
+  - steps
+properties:
+  id:
+    type: string
+    description: Unique playbook identifier
+  name:
+    type: string
+    description: Human-readable playbook name
+  description:
+    type: string
+    description: What this playbook validates
+  tier:
+    type: integer
+    minimum: 0
+    maximum: 3
+    description: "Governance tier (0=passive, 1=benign, 2=sensitive, 3=prohibited)"
+  technique_id:
+    type: string
+    description: "MITRE ATT&CK technique ID (e.g., T1059.001)"
+  asset_types:
+    type: array
+    items:
+      type: string
+      enum:
+        - endpoint
+        - server
+        - application
+        - identity
+        - cloud_account
+        - k8s_cluster
+        - "*"
+    description: Asset types this playbook can target
+  tags:
+    type: array
+    items:
+      type: string
+    description: Searchable tags
+  steps:
+    type: array
+    minItems: 1
+    items:
+      type: object
+      required:
+        - name
+        - agent_type
+        - action
+        - description
+      properties:
+        name:
+          type: string
+        agent_type:
+          type: string
+        action:
+          type: string
+        description:
+          type: string
+        inputs:
+          type: object
+        expected_telemetry:
+          type: object
+          properties:
+            source:
+              type: string
+            event_type:
+              type: string
+            search_query:
+              type: string
+            max_latency_sec:
+              type: integer
+            indicators:
+              type: object
+        cleanup:
+          type: object
+          properties:
+            action:
+              type: string
+            description:
+              type: string
+            inputs:
+              type: object
+        timeout_seconds:
+          type: integer

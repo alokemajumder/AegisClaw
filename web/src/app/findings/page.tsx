@@ -19,79 +19,53 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, Filter } from "lucide-react";
-
-const findings = [
-  {
-    title: "Defender alert latency >5min for PowerShell execution",
-    severity: "Critical",
-    confidence: "High",
-    status: "Open",
-    affectedAssets: 3,
-    technique: "T1059.001",
-    lastUpdated: "2 hours ago",
-  },
-  {
-    title: "Kerberoasting attack not detected by Sentinel",
-    severity: "Critical",
-    confidence: "High",
-    status: "Open",
-    affectedAssets: 1,
-    technique: "T1558.003",
-    lastUpdated: "5 hours ago",
-  },
-  {
-    title: "Lateral movement via PsExec partially detected",
-    severity: "High",
-    confidence: "Medium",
-    status: "In Progress",
-    affectedAssets: 4,
-    technique: "T1570",
-    lastUpdated: "1 day ago",
-  },
-  {
-    title: "DNS tunneling exfiltration not blocked",
-    severity: "Medium",
-    confidence: "High",
-    status: "Open",
-    affectedAssets: 2,
-    technique: "T1048.003",
-    lastUpdated: "2 days ago",
-  },
-  {
-    title: "Scheduled task persistence not flagged",
-    severity: "Low",
-    confidence: "Low",
-    status: "Resolved",
-    affectedAssets: 1,
-    technique: "T1053.005",
-    lastUpdated: "5 days ago",
-  },
-];
+import { AlertTriangle, Filter, Loader2, Ticket } from "lucide-react";
+import { useApi } from "@/hooks/useApi";
+import { listFindings, createFindingTicket } from "@/lib/api";
+import type { Finding } from "@/lib/types";
 
 const severityColor: Record<string, string> = {
-  Critical: "bg-red-100 text-red-700 hover:bg-red-100",
-  High: "bg-orange-100 text-orange-700 hover:bg-orange-100",
-  Medium: "bg-yellow-100 text-yellow-700 hover:bg-yellow-100",
-  Low: "bg-blue-100 text-blue-700 hover:bg-blue-100",
+  critical: "bg-red-100 text-red-700 hover:bg-red-100",
+  high: "bg-orange-100 text-orange-700 hover:bg-orange-100",
+  medium: "bg-yellow-100 text-yellow-700 hover:bg-yellow-100",
+  low: "bg-blue-100 text-blue-700 hover:bg-blue-100",
+  informational: "bg-slate-100 text-slate-700 hover:bg-slate-100",
 };
 
 const statusColor: Record<string, string> = {
-  Open: "bg-red-100 text-red-700 hover:bg-red-100",
-  "In Progress": "bg-amber-100 text-amber-700 hover:bg-amber-100",
-  Resolved: "bg-emerald-100 text-emerald-700 hover:bg-emerald-100",
+  observed: "bg-slate-100 text-slate-700 hover:bg-slate-100",
+  needs_review: "bg-amber-100 text-amber-700 hover:bg-amber-100",
+  confirmed: "bg-red-100 text-red-700 hover:bg-red-100",
+  ticketed: "bg-blue-100 text-blue-700 hover:bg-blue-100",
+  fixed: "bg-emerald-100 text-emerald-700 hover:bg-emerald-100",
+  closed: "bg-slate-100 text-slate-700 hover:bg-slate-100",
 };
 
 export default function FindingsPage() {
   const [severityFilter, setSeverityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const filteredFindings = findings.filter((f) => {
-    const matchSeverity =
-      severityFilter === "all" || f.severity === severityFilter;
-    const matchStatus = statusFilter === "all" || f.status === statusFilter;
-    return matchSeverity && matchStatus;
-  });
+  const { data: findings, loading, error, refetch } = useApi<Finding[]>(
+    () => listFindings(
+      1, 50,
+      severityFilter === "all" ? undefined : severityFilter,
+      statusFilter === "all" ? undefined : statusFilter
+    ),
+    [severityFilter, statusFilter]
+  );
+
+  const [ticketing, setTicketing] = useState<string | null>(null);
+  const handleCreateTicket = async (findingId: string) => {
+    setTicketing(findingId);
+    try {
+      await createFindingTicket(findingId, { connector_id: "" });
+      refetch();
+    } catch {
+      // Error handled by API layer
+    } finally {
+      setTicketing(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -110,10 +84,11 @@ export default function FindingsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Severities</SelectItem>
-            <SelectItem value="Critical">Critical</SelectItem>
-            <SelectItem value="High">High</SelectItem>
-            <SelectItem value="Medium">Medium</SelectItem>
-            <SelectItem value="Low">Low</SelectItem>
+            <SelectItem value="critical">Critical</SelectItem>
+            <SelectItem value="high">High</SelectItem>
+            <SelectItem value="medium">Medium</SelectItem>
+            <SelectItem value="low">Low</SelectItem>
+            <SelectItem value="informational">Informational</SelectItem>
           </SelectContent>
         </Select>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -122,9 +97,12 @@ export default function FindingsPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Statuses</SelectItem>
-            <SelectItem value="Open">Open</SelectItem>
-            <SelectItem value="In Progress">In Progress</SelectItem>
-            <SelectItem value="Resolved">Resolved</SelectItem>
+            <SelectItem value="observed">Observed</SelectItem>
+            <SelectItem value="needs_review">Needs Review</SelectItem>
+            <SelectItem value="confirmed">Confirmed</SelectItem>
+            <SelectItem value="ticketed">Ticketed</SelectItem>
+            <SelectItem value="fixed">Fixed</SelectItem>
+            <SelectItem value="closed">Closed</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -133,56 +111,94 @@ export default function FindingsPage() {
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
             <AlertTriangle className="h-4 w-4" />
-            Findings ({filteredFindings.length})
+            Findings ({findings?.length ?? 0})
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Title</TableHead>
-                <TableHead>Severity</TableHead>
-                <TableHead>Confidence</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Affected Assets</TableHead>
-                <TableHead>Technique</TableHead>
-                <TableHead>Last Updated</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredFindings.map((finding, i) => (
-                <TableRow key={i}>
-                  <TableCell className="font-medium text-slate-900 max-w-[300px]">
-                    {finding.title}
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={severityColor[finding.severity]}>
-                      {finding.severity}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-slate-600">
-                    {finding.confidence}
-                  </TableCell>
-                  <TableCell>
-                    <Badge className={statusColor[finding.status]}>
-                      {finding.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-slate-600">
-                    {finding.affectedAssets}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="font-mono text-xs">
-                      {finding.technique}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-slate-500">
-                    {finding.lastUpdated}
-                  </TableCell>
+          {loading ? (
+            <div className="flex items-center gap-2 text-slate-500 py-8 justify-center">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Loading findings...
+            </div>
+          ) : error ? (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+              Failed to load data: {error}
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Title</TableHead>
+                  <TableHead>Severity</TableHead>
+                  <TableHead>Confidence</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Techniques</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {findings && findings.length > 0 ? (
+                  findings.map((finding) => (
+                    <TableRow key={finding.id}>
+                      <TableCell className="font-medium text-slate-900 max-w-[300px]">
+                        {finding.title}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={severityColor[finding.severity] ?? "bg-slate-100 text-slate-700"}>
+                          {finding.severity}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-slate-600">
+                        {finding.confidence}
+                      </TableCell>
+                      <TableCell>
+                        <Badge className={statusColor[finding.status] ?? "bg-slate-100 text-slate-700"}>
+                          {finding.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1 flex-wrap">
+                          {(finding.technique_ids ?? []).map((t, j) => (
+                            <Badge key={j} variant="outline" className="font-mono text-xs">
+                              {t}
+                            </Badge>
+                          ))}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {!finding.ticket_id && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleCreateTicket(finding.id)}
+                            disabled={ticketing === finding.id}
+                          >
+                            {ticketing === finding.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Ticket className="h-3.5 w-3.5 mr-1" />
+                            )}
+                            Create Ticket
+                          </Button>
+                        )}
+                        {finding.ticket_url && (
+                          <a href={finding.ticket_url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">
+                            {finding.ticket_id}
+                          </a>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center text-slate-400 py-8">
+                      No findings found
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>

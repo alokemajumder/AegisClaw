@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/alokemajumder/AegisClaw/internal/config"
+	"github.com/alokemajumder/AegisClaw/internal/grpcutil"
 	aegisnats "github.com/alokemajumder/AegisClaw/internal/nats"
 	"github.com/alokemajumder/AegisClaw/internal/observability"
 )
@@ -58,7 +60,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpcutil.ServerOptions(logger)...)
 	// TODO: Register runner gRPC services once proto definitions are available.
 
 	go func() {
@@ -66,6 +68,29 @@ func main() {
 		if err := grpcServer.Serve(lis); err != nil {
 			logger.Error("grpc server error", "error", err)
 			os.Exit(1)
+		}
+	}()
+
+	// Health check endpoints
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"healthy","service":"runner"}`)
+	})
+	healthMux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"ready","service":"runner"}`)
+	})
+	healthServer := &http.Server{
+		Addr:         ":10091",
+		Handler:      healthMux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+	go func() {
+		logger.Info("health endpoint starting", "addr", healthServer.Addr)
+		if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("health server error", "error", err)
 		}
 	}()
 
@@ -97,6 +122,7 @@ func main() {
 		grpcServer.Stop()
 	}
 
+	healthServer.Shutdown(context.Background())
 	cancel()
 	logger.Info("runner stopped")
 }

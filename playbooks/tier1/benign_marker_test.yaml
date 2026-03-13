@@ -1,0 +1,50 @@
+id: tier1-benign-marker-test
+name: Benign Marker File Detection Test
+description: Drop a safe marker file on target endpoint and verify EDR detection
+tier: 1
+technique_id: "T1204.002"
+asset_types:
+  - endpoint
+  - server
+tags:
+  - detection-test
+  - file-creation
+  - edr
+steps:
+  - name: Drop safe marker file
+    agent_type: executor
+    action: drop_marker_file
+    description: Create a benign EICAR-like test marker file to trigger EDR detection
+    inputs:
+      marker_type: eicar_test
+      target_path: "/tmp/aegisclaw_test_marker.txt"
+    expected_telemetry:
+      source: edr
+      event_type: file_creation
+      search_query: "aegisclaw_test_marker"
+      max_latency_sec: 120
+      indicators:
+        file_name: aegisclaw_test_marker.txt
+        action: create
+    cleanup:
+      action: delete_file
+      description: Remove the test marker file
+      inputs:
+        target_path: "/tmp/aegisclaw_test_marker.txt"
+    timeout_seconds: 60
+  - name: Verify EDR detection
+    agent_type: detection_evaluator
+    action: verify_detection
+    description: Check that the EDR raised an alert for the marker file
+    inputs:
+      check_type: alert_fired
+      expected_severity: low
+      max_latency_sec: 120
+    timeout_seconds: 120
+  - name: Verify cleanup
+    agent_type: executor
+    action: verify_cleanup
+    description: Confirm the test marker file has been removed
+    inputs:
+      target_path: "/tmp/aegisclaw_test_marker.txt"
+    timeout_seconds: 30

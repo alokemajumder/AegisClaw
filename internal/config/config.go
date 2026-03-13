@@ -10,19 +10,29 @@ import (
 
 // Config holds all platform configuration.
 type Config struct {
-	Server      ServerConfig      `mapstructure:"server"`
-	Database    DatabaseConfig    `mapstructure:"database"`
-	NATS        NATSConfig        `mapstructure:"nats"`
-	MinIO       MinIOConfig       `mapstructure:"minio"`
-	Ollama      OllamaConfig      `mapstructure:"ollama"`
-	Auth        AuthConfig        `mapstructure:"auth"`
-	Policy      PolicyConfig      `mapstructure:"policy"`
+	Server        ServerConfig        `mapstructure:"server"`
+	Database      DatabaseConfig      `mapstructure:"database"`
+	NATS          NATSConfig          `mapstructure:"nats"`
+	MinIO         MinIOConfig         `mapstructure:"minio"`
+	Ollama        OllamaConfig        `mapstructure:"ollama"`
+	Auth          AuthConfig          `mapstructure:"auth"`
+	Policy        PolicyConfig        `mapstructure:"policy"`
 	Observability ObservabilityConfig `mapstructure:"observability"`
+	TLS           TLSConfig           `mapstructure:"tls"`
 }
 
 type ServerConfig struct {
-	APIPort      int `mapstructure:"api_port"`
-	GRPCBasePort int `mapstructure:"grpc_base_port"`
+	APIPort     int      `mapstructure:"api_port"`
+	GRPCBasePort int     `mapstructure:"grpc_base_port"`
+	CORSOrigins []string `mapstructure:"cors_origins"`
+	Environment string   `mapstructure:"environment"`
+}
+
+// TLSConfig holds TLS certificate configuration.
+type TLSConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`
+	CertFile string `mapstructure:"cert_file"`
+	KeyFile  string `mapstructure:"key_file"`
 }
 
 type DatabaseConfig struct {
@@ -98,6 +108,9 @@ func Load(configPath string) (*Config, error) {
 	// Defaults
 	v.SetDefault("server.api_port", 8080)
 	v.SetDefault("server.grpc_base_port", 9090)
+	v.SetDefault("server.cors_origins", []string{"http://localhost:3000"})
+	v.SetDefault("server.environment", "development")
+	v.SetDefault("tls.enabled", false)
 	v.SetDefault("database.host", "localhost")
 	v.SetDefault("database.port", 5432)
 	v.SetDefault("database.user", "aegisclaw")
@@ -152,5 +165,52 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("unmarshaling config: %w", err)
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
 	return &cfg, nil
+}
+
+// Validate checks configuration for production readiness.
+func (c *Config) Validate() error {
+	var errs []string
+
+	if c.Server.APIPort <= 0 || c.Server.APIPort > 65535 {
+		errs = append(errs, "server.api_port must be between 1 and 65535")
+	}
+	if c.Server.GRPCBasePort <= 0 || c.Server.GRPCBasePort > 65535 {
+		errs = append(errs, "server.grpc_base_port must be between 1 and 65535")
+	}
+	if c.Database.MaxConns <= 0 {
+		errs = append(errs, "database.max_conns must be positive")
+	}
+	if c.Database.Host == "" {
+		errs = append(errs, "database.host is required")
+	}
+
+	if c.Server.Environment == "production" {
+		if c.Auth.JWTSecret == "" || c.Auth.JWTSecret == "dev-secret-change-in-production" {
+			errs = append(errs, "auth.jwt_secret must be set to a strong secret in production")
+		}
+		if len(c.Auth.JWTSecret) < 32 {
+			errs = append(errs, "auth.jwt_secret must be at least 32 characters in production")
+		}
+		if c.Database.SSLMode == "disable" {
+			errs = append(errs, "database.ssl_mode must not be 'disable' in production")
+		}
+		if c.Database.Password == "aegisclaw" {
+			errs = append(errs, "database.password must be changed from default in production")
+		}
+		if c.MinIO.SecretKey == "minioadmin" {
+			errs = append(errs, "minio.secret_key must be changed from default in production")
+		}
+		if !c.MinIO.UseSSL {
+			errs = append(errs, "minio.use_ssl should be enabled in production")
+		}
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("configuration validation failed:\n  - %s", strings.Join(errs, "\n  - "))
+	}
+	return nil
 }

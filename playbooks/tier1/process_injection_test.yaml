@@ -1,0 +1,52 @@
+id: tier1-process-injection-test
+name: Process Injection Detection Test
+description: Create a benign process with suspicious characteristics to test process injection detection
+tier: 1
+technique_id: "T1055"
+asset_types:
+  - endpoint
+  - server
+tags:
+  - detection-test
+  - process-injection
+  - defense-evasion
+steps:
+  - name: Execute benign injection marker
+    agent_type: executor
+    action: simulate_process_injection
+    description: Create a benign process that exhibits injection-like characteristics (e.g., cross-process memory allocation) to trigger EDR detection
+    inputs:
+      injection_type: benign_marker
+      target_process: "aegisclaw_target_process"
+      description: "Benign process with injection-like behavior for detection testing"
+    expected_telemetry:
+      source: edr
+      event_type: process_creation
+      search_query: "aegisclaw_target_process cross-process"
+      max_latency_sec: 120
+      indicators:
+        process_name: aegisclaw_target_process
+        action: cross_process_access
+    cleanup:
+      action: terminate_process
+      description: Terminate the benign test process
+      inputs:
+        process_name: aegisclaw_target_process
+    timeout_seconds: 60
+  - name: Verify injection detection alert
+    agent_type: detection_evaluator
+    action: verify_detection
+    description: Check that the EDR raised a process injection alert for the suspicious process behavior
+    inputs:
+      check_type: alert_fired
+      expected_severity: high
+      expected_technique: "T1055"
+      max_latency_sec: 120
+    timeout_seconds: 120
+  - name: Verify cleanup
+    agent_type: executor
+    action: verify_cleanup
+    description: Confirm the benign test process has been terminated and no artifacts remain
+    inputs:
+      process_name: aegisclaw_target_process
+    timeout_seconds: 30

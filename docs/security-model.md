@@ -69,14 +69,33 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - **Per-run kill switch**: Stops a specific run
 - Kill switch confirms cleanup status for all stopped steps
 - Kill switch engagement is logged in the immutable audit log
-- Accessible via API (`POST /api/v1/admin/system/kill-switch`) and UI (red button in top bar)
+- **Persistent across restarts**: State is loaded from the audit log on API gateway startup
+- Kill switch propagates via NATS to the orchestrator, which cancels all in-flight run contexts
+- Orchestrator checks `killSwitch.IsEngaged()` before executing each step
+- Accessible via API (`POST /api/v1/admin/system/kill-switch`), UI (red button in top bar), and CLI (`aegiscli kill-switch engage/disengage`)
 
 ## Authentication and Authorization
 
 ### Authentication
 - **JWT tokens** with short expiry (default: 15 minutes) + refresh tokens (default: 7 days)
-- **SSO/OIDC** integration for enterprise identity providers (Entra ID, Okta, etc.)
-- Local login disabled by default in production (available for development)
+- **JWT secret validation**: API gateway refuses to start with an empty JWT secret and warns on default values
+- **SSO/OIDC** integration for enterprise identity providers (Entra ID, Okta, etc.) — planned
+- Local login available for development; SSO recommended for production
+
+### Account Lockout
+- **5 failed login attempts** trigger a **15-minute lockout** per email address
+- Lockout is tracked in-memory at the API gateway
+- Lockout counter resets on successful authentication
+- Protects against brute-force credential attacks
+
+### Auth Rate Limiting
+- Login and refresh endpoints are rate-limited to **10 requests per minute per IP** (stricter than the global 100/min API rate limit)
+- Enforced via `httprate` middleware at the API gateway
+
+### Frontend Auth Middleware
+- Next.js middleware intercepts all requests and redirects unauthenticated users to `/login`
+- Auth token is stored as both a cookie (for SSR middleware checks) and localStorage (for API calls)
+- Automatic redirect on 401 responses from the API
 
 ### RBAC Roles
 | Role | Permissions |
@@ -90,6 +109,12 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - RBAC checked at API gateway middleware level (every request)
 - Policy changes require `admin` role
 - Tier 2+ approvals require `admin` or `approver` role
+
+### Tenant Isolation
+- All 30+ API handlers enforce **org_id ownership checks** on every data access
+- Users can only access resources belonging to their organization
+- Cross-tenant access returns **404 Not Found** (not 403) to prevent information leakage
+- Enforced at the repository query level (WHERE org_id = $claims.OrgID)
 
 ## Audit Trail
 

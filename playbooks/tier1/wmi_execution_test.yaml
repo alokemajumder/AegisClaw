@@ -1,0 +1,52 @@
+id: tier1-wmi-execution-test
+name: WMI Execution Detection Test
+description: Run a benign WMI query to test Windows Management Instrumentation execution monitoring
+tier: 1
+technique_id: "T1047"
+asset_types:
+  - endpoint
+  - server
+tags:
+  - detection-test
+  - wmi
+  - execution
+steps:
+  - name: Execute benign WMI query
+    agent_type: executor
+    action: execute_wmi_query
+    description: Run a benign WMI query (e.g., Win32_OperatingSystem) via wmic.exe to trigger WMI execution monitoring
+    inputs:
+      command_type: benign_wmi_query
+      wmi_class: Win32_OperatingSystem
+      wmi_method: get
+      description: "Benign WMI query for detection testing"
+    expected_telemetry:
+      source: edr
+      event_type: process_creation
+      search_query: "wmic Win32_OperatingSystem"
+      max_latency_sec: 60
+      indicators:
+        process_name: wmic.exe
+        command_line_contains: "Win32_OperatingSystem"
+    cleanup:
+      action: verify_cleanup
+      description: No persistent artifacts to clean up from WMI query
+    timeout_seconds: 60
+  - name: Verify WMI execution alert
+    agent_type: detection_evaluator
+    action: verify_detection
+    description: Check that the EDR or SIEM raised an alert for WMI execution activity
+    inputs:
+      check_type: alert_fired
+      expected_severity: medium
+      expected_technique: "T1047"
+      max_latency_sec: 60
+    timeout_seconds: 120
+  - name: Verify cleanup
+    agent_type: executor
+    action: verify_cleanup
+    description: Confirm no persistent WMI subscriptions or artifacts were left behind
+    inputs:
+      check_type: wmi_subscriptions
+      expected_count: 0
+    timeout_seconds: 30

@@ -1,0 +1,45 @@
+# Version control
+.git
+.gitignore
+
+# Node modules (frontend builds its own)
+web/node_modules
+web/.next
+
+# Go build artifacts
+bin/
+*.exe
+
+# IDE / editor
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Documentation (not needed in images)
+docs/
+*.md
+!configs/*.md
+LICENSE
+CONTRIBUTING.md
+SECURITY.md
+
+# CI/CD
+.github/
+
+# Test artifacts
+coverage.out
+*.test
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# Temp files
+tmp/

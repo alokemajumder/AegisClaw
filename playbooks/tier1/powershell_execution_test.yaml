@@ -1,0 +1,50 @@
+id: tier1-powershell-execution-test
+name: PowerShell Encoded Command Detection Test
+description: Run a benign encoded PowerShell command and verify alert generation
+tier: 1
+technique_id: "T1059.001"
+asset_types:
+  - endpoint
+  - server
+tags:
+  - detection-test
+  - powershell
+  - execution
+steps:
+  - name: Execute benign encoded command
+    agent_type: executor
+    action: execute_encoded_command
+    description: Run a benign Base64-encoded PowerShell command (e.g., Write-Host test) to trigger execution monitoring
+    inputs:
+      command_type: benign_encoded_ps
+      payload: "V3JpdGUtSG9zdCAiQWVnaXNDbGF3IFRlc3Qi"
+      description: "Base64 of: Write-Host 'AegisClaw Test'"
+    expected_telemetry:
+      source: edr
+      event_type: process_creation
+      search_query: "powershell -encodedcommand"
+      max_latency_sec: 60
+      indicators:
+        process_name: powershell.exe
+        command_line_contains: "-encodedcommand"
+    cleanup:
+      action: verify_cleanup
+      description: No persistent artifacts to clean up
+    timeout_seconds: 60
+  - name: Verify alert latency
+    agent_type: detection_evaluator
+    action: verify_detection
+    description: Check that an alert was raised for encoded PowerShell execution
+    inputs:
+      check_type: alert_latency
+      expected_severity: medium
+      max_latency_sec: 60
+    timeout_seconds: 120
+  - name: Assess alert quality
+    agent_type: detection_evaluator
+    action: verify_detection
+    description: Evaluate alert quality including context and severity mapping
+    inputs:
+      check_type: alert_quality
+      expected_technique: "T1059.001"
+    timeout_seconds: 30

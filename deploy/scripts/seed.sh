@@ -16,9 +16,9 @@ INSERT INTO organizations (id, name, settings) VALUES
 ('00000000-0000-0000-0000-000000000001', 'Default Organization', '{}')
 ON CONFLICT DO NOTHING;
 
--- Seed admin user (password: admin — development only!)
+-- Seed admin user (password: admin — change immediately in production!)
 INSERT INTO users (id, org_id, email, name, role, password_hash) VALUES
-('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000001', 'admin@aegisclaw.local', 'Admin User', 'admin', '$2a$10$placeholder')
+('00000000-0000-0000-0000-000000000010', '00000000-0000-0000-0000-000000000001', 'admin@aegisclaw.local', 'Admin User', 'admin', '$2a$10$2.htXGmm2Vs8jYokthlAiOk6Jzjjiejg9wM9/X8PeQZzyFOAZtRZ.')
 ON CONFLICT DO NOTHING;
 
 -- Seed default policy pack

@@ -1,0 +1,31 @@
+id: tier0-edr-agent-reporting
+name: EDR Agent Reporting Check
+description: Verify that EDR agents on target assets are actively reporting
+tier: 0
+technique_id: "DS0009"
+asset_types:
+  - endpoint
+  - server
+tags:
+  - telemetry
+  - health-check
+  - edr
+steps:
+  - name: Check EDR agent status
+    agent_type: telemetry_verifier
+    action: check_edr_agents
+    description: Query the EDR connector for agent heartbeat and reporting status
+    inputs:
+      max_stale_hours: 24
+    expected_telemetry:
+      source: edr
+      event_type: agent_heartbeat
+      max_latency_sec: 600
+    timeout_seconds: 30
+  - name: Verify agent version compliance
+    agent_type: detection_evaluator
+    action: verify_detection
+    description: Check that EDR agents are running approved versions
+    inputs:
+      check_type: version_compliance
+    timeout_seconds: 30

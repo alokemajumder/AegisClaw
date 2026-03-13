@@ -3,16 +3,19 @@ package emulation
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/alokemajumder/AegisClaw/internal/evidence"
 	"github.com/alokemajumder/AegisClaw/pkg/agentsdk"
 )
 
-// EvidenceAgent captures safe artifacts and expected telemetry signatures.
+// EvidenceAgent captures safe artifacts and stores them in the evidence vault.
 type EvidenceAgent struct {
 	logger *slog.Logger
 	deps   agentsdk.AgentDeps
+	store  *evidence.Store
 }
 
 func NewEvidenceAgent() *EvidenceAgent {
@@ -29,6 +32,14 @@ func (a *EvidenceAgent) Init(_ context.Context, deps agentsdk.AgentDeps) error {
 	} else {
 		a.logger = slog.Default()
 	}
+
+	if s, ok := deps.EvidenceStore.(*evidence.Store); ok {
+		a.store = s
+		a.logger.Info("evidence agent connected to evidence store")
+	} else {
+		a.logger.Warn("evidence agent has no evidence store, artifacts will not be persisted")
+	}
+
 	a.logger.Info("evidence agent initialized")
 	return nil
 }
@@ -39,13 +50,39 @@ func (a *EvidenceAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (*a
 		"run_id", task.RunID,
 	)
 
-	// In full implementation:
-	// 1. Collect execution outputs from the Executor
-	// 2. Sanitize and redact sensitive data per policy
-	// 3. Store artifacts in evidence vault (MinIO)
-	// 4. Record expected telemetry signatures for validation
+	var evidenceIDs []string
 
-	evidenceIDs := []string{"ev_stub_001", "ev_stub_002"}
+	// Parse inputs to get execution outputs to store
+	var inputs map[string]any
+	if task.Inputs != nil {
+		_ = json.Unmarshal(task.Inputs, &inputs)
+	}
+
+	if a.store != nil {
+		// Store the task inputs/outputs as evidence artifact
+		artifactData, _ := json.MarshalIndent(map[string]any{
+			"task_id":     task.ID,
+			"run_id":      task.RunID.String(),
+			"action":      task.Action,
+			"tier":        task.Tier,
+			"inputs":      inputs,
+			"captured_at": time.Now().UTC(),
+		}, "", "  ")
+
+		artifactName := fmt.Sprintf("step_%d_%s.json", task.StepNumber, task.Action)
+		artifact, err := a.store.Upload(ctx, task.RunID.String(), artifactName, "application/json", artifactData)
+		if err != nil {
+			a.logger.Error("failed to upload evidence artifact", "error", err)
+		} else {
+			evidenceIDs = append(evidenceIDs, artifact.ID)
+			a.logger.Info("evidence artifact stored", "id", artifact.ID, "name", artifactName)
+		}
+	} else {
+		// Fallback: generate stub IDs
+		evidenceIDs = []string{
+			fmt.Sprintf("ev_stub_%s_%d", task.RunID.String()[:8], task.StepNumber),
+		}
+	}
 
 	outputs, _ := json.Marshal(map[string]any{
 		"artifacts_captured": len(evidenceIDs),

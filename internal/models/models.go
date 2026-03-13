@@ -29,15 +29,16 @@ const (
 
 // User represents a platform user.
 type User struct {
-	ID         uuid.UUID       `json:"id" db:"id"`
-	OrgID      uuid.UUID       `json:"org_id" db:"org_id"`
-	Email      string          `json:"email" db:"email"`
-	Name       string          `json:"name" db:"name"`
-	Role       UserRole        `json:"role" db:"role"`
-	SSOSubject *string         `json:"sso_subject,omitempty" db:"sso_subject"`
-	Settings   json.RawMessage `json:"settings" db:"settings"`
-	CreatedAt  time.Time       `json:"created_at" db:"created_at"`
-	UpdatedAt  time.Time       `json:"updated_at" db:"updated_at"`
+	ID           uuid.UUID       `json:"id" db:"id"`
+	OrgID        uuid.UUID       `json:"org_id" db:"org_id"`
+	Email        string          `json:"email" db:"email"`
+	Name         string          `json:"name" db:"name"`
+	PasswordHash *string         `json:"-" db:"password_hash"`
+	Role         UserRole        `json:"role" db:"role"`
+	SSOSubject   *string         `json:"sso_subject,omitempty" db:"sso_subject"`
+	Settings     json.RawMessage `json:"settings" db:"settings"`
+	CreatedAt    time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt    time.Time       `json:"updated_at" db:"updated_at"`
 }
 
 // AssetType defines the kinds of assets that can be tracked.
@@ -356,6 +357,21 @@ type PolicyPack struct {
 	IsDefault   bool            `json:"is_default" db:"is_default"`
 	Rules       json.RawMessage `json:"rules" db:"rules"`
 	Version     int             `json:"version" db:"version"`
+	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
+	UpdatedAt   time.Time       `json:"updated_at" db:"updated_at"`
+}
+
+// Report represents a generated report.
+type Report struct {
+	ID          uuid.UUID       `json:"id" db:"id"`
+	OrgID       uuid.UUID       `json:"org_id" db:"org_id"`
+	Title       string          `json:"title" db:"title"`
+	ReportType  string          `json:"report_type" db:"report_type"`
+	Status      string          `json:"status" db:"status"`
+	Format      string          `json:"format" db:"format"`
+	StoragePath *string         `json:"storage_path,omitempty" db:"storage_path"`
+	GeneratedBy *uuid.UUID      `json:"generated_by,omitempty" db:"generated_by"`
+	Metadata    json.RawMessage `json:"metadata" db:"metadata"`
 	CreatedAt   time.Time       `json:"created_at" db:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at" db:"updated_at"`
 }

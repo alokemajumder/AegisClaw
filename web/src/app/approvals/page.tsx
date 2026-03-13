@@ -1,49 +1,51 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ShieldAlert, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { ShieldAlert, CheckCircle2, XCircle, Clock, Loader2 } from "lucide-react";
+import { useApi } from "@/hooks/useApi";
+import { listApprovals, approveRequest, denyRequest } from "@/lib/api";
+import type { Approval } from "@/lib/types";
 
-const pendingApprovals = [
-  {
-    id: "APR-101",
-    description:
-      "Execute Tier 2 credential dumping emulation (T1003.001 — LSASS Memory) against dc01.corp.local",
-    tier: "Tier 2",
-    requestedBy: "Engagement: Quarterly AD Validation",
-    requestedTime: "10 minutes ago",
-    risk: "Medium",
-    details:
-      "This step will attempt to read LSASS process memory using procdump. The action is reversible and scoped to the target host only.",
-  },
-  {
-    id: "APR-100",
-    description:
-      "Initiate Tier 3 network-level lateral movement test (T1021.002 — SMB/Windows Admin Shares) across 3 hosts",
-    tier: "Tier 3",
-    requestedBy: "Engagement: Endpoint Detection Coverage",
-    requestedTime: "25 minutes ago",
-    risk: "High",
-    details:
-      "This step will attempt authenticated SMB connections to target hosts using provided service account. Requires explicit approval due to Tier 3 classification.",
-  },
-];
-
-const tierColor: Record<string, string> = {
-  "Tier 0": "bg-slate-100 text-slate-700 hover:bg-slate-100",
-  "Tier 1": "bg-blue-100 text-blue-700 hover:bg-blue-100",
-  "Tier 2": "bg-purple-100 text-purple-700 hover:bg-purple-100",
-  "Tier 3": "bg-red-100 text-red-700 hover:bg-red-100",
-};
-
-const riskColor: Record<string, string> = {
-  Low: "bg-blue-100 text-blue-700 hover:bg-blue-100",
-  Medium: "bg-yellow-100 text-yellow-700 hover:bg-yellow-100",
-  High: "bg-orange-100 text-orange-700 hover:bg-orange-100",
+const statusColor: Record<string, string> = {
+  pending: "bg-amber-100 text-amber-700 hover:bg-amber-100",
+  approved: "bg-emerald-100 text-emerald-700 hover:bg-emerald-100",
+  denied: "bg-red-100 text-red-700 hover:bg-red-100",
+  expired: "bg-slate-100 text-slate-700 hover:bg-slate-100",
 };
 
 export default function ApprovalsPage() {
+  const { data: approvals, loading, error, refetch } = useApi<Approval[]>(() => listApprovals());
+  const [acting, setActing] = useState<string | null>(null);
+
+  const handleApprove = async (id: string) => {
+    setActing(id);
+    try {
+      await approveRequest(id);
+      refetch();
+    } catch {
+      // Error handled
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const handleDeny = async (id: string) => {
+    setActing(id);
+    try {
+      await denyRequest(id);
+      refetch();
+    } catch {
+      // Error handled
+    } finally {
+      setActing(null);
+    }
+  };
+
+  const pendingCount = approvals?.filter((a) => a.status === "pending").length ?? 0;
+
   return (
     <div className="space-y-6">
       <div>
@@ -55,61 +57,101 @@ export default function ApprovalsPage() {
 
       <div className="flex items-center gap-2 text-sm text-slate-500">
         <Clock className="h-4 w-4" />
-        <span>{pendingApprovals.length} pending approval(s)</span>
+        <span>{pendingCount} pending approval(s)</span>
       </div>
 
-      <div className="space-y-4">
-        {pendingApprovals.map((approval, i) => (
-          <Card key={i}>
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-lg bg-amber-50 mt-0.5">
-                    <ShieldAlert className="h-5 w-5 text-amber-600" />
-                  </div>
-                  <div className="space-y-1">
-                    <CardTitle className="text-base text-slate-900">
-                      {approval.description}
-                    </CardTitle>
-                    <div className="flex items-center gap-2">
-                      <Badge className={tierColor[approval.tier]}>
-                        {approval.tier}
-                      </Badge>
-                      <Badge className={riskColor[approval.risk]}>
-                        Risk: {approval.risk}
-                      </Badge>
-                      <span className="text-xs text-slate-400">
-                        {approval.id}
-                      </span>
+      {loading ? (
+        <div className="flex items-center gap-2 text-slate-500">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading approvals...
+        </div>
+      ) : error ? (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+          Failed to load data: {error}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {approvals && approvals.length > 0 ? (
+            approvals.map((approval) => (
+              <Card key={approval.id}>
+                <CardHeader className="pb-3">
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 rounded-lg bg-amber-50 mt-0.5">
+                        <ShieldAlert className="h-5 w-5 text-amber-600" />
+                      </div>
+                      <div className="space-y-1">
+                        <CardTitle className="text-base text-slate-900">
+                          {approval.description}
+                        </CardTitle>
+                        <div className="flex items-center gap-2">
+                          <Badge className={statusColor[approval.status] ?? "bg-slate-100 text-slate-700"}>
+                            {approval.status}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">
+                            {approval.request_type}
+                          </Badge>
+                          <span className="text-xs text-slate-400">
+                            {approval.id.slice(0, 8)}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-slate-500">{approval.details}</p>
-
-              <div className="flex items-center justify-between">
-                <div className="text-xs text-slate-400">
-                  <span>Requested by: {approval.requestedBy}</span>
-                  <span className="mx-2">|</span>
-                  <span>{approval.requestedTime}</span>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm">
-                    <XCircle className="h-4 w-4 mr-1.5 text-red-500" />
-                    Deny
-                  </Button>
-                  <Button size="sm">
-                    <CheckCircle2 className="h-4 w-4 mr-1.5" />
-                    Approve
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-slate-400">
+                      <span>Created: {new Date(approval.created_at).toLocaleString()}</span>
+                      {approval.decided_at && (
+                        <>
+                          <span className="mx-2">|</span>
+                          <span>Decided: {new Date(approval.decided_at).toLocaleString()}</span>
+                        </>
+                      )}
+                    </div>
+                    {approval.status === "pending" && (
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeny(approval.id)}
+                          disabled={acting === approval.id}
+                        >
+                          {acting === approval.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <XCircle className="h-4 w-4 mr-1.5 text-red-500" />
+                          )}
+                          Deny
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => handleApprove(approval.id)}
+                          disabled={acting === approval.id}
+                        >
+                          {acting === approval.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <CheckCircle2 className="h-4 w-4 mr-1.5" />
+                          )}
+                          Approve
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <Card>
+              <CardContent className="py-8 text-center text-slate-400">
+                No approvals found
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   );
 }

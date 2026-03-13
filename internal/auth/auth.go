@@ -64,11 +64,17 @@ func (s *TokenService) GenerateToken(user *models.User) (string, error) {
 
 // GenerateRefreshToken creates a new JWT refresh token.
 func (s *TokenService) GenerateRefreshToken(user *models.User) (string, error) {
-	claims := jwt.RegisteredClaims{
-		ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.refreshExpiry)),
-		IssuedAt:  jwt.NewNumericDate(time.Now()),
-		Issuer:    "aegisclaw",
-		Subject:   user.ID.String(),
+	claims := Claims{
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.refreshExpiry)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    "aegisclaw",
+			Subject:   user.ID.String(),
+		},
+		UserID: user.ID,
+		OrgID:  user.OrgID,
+		Email:  user.Email,
+		Role:   user.Role,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

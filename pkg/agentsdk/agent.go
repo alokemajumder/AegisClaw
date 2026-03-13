@@ -53,14 +53,18 @@ type Agent interface {
 }
 
 // AgentDeps holds dependencies injected into agents.
+// Fields are typed as `any` to avoid circular imports between the public SDK
+// package and internal packages. Agents type-assert in their Init() methods.
 type AgentDeps struct {
-	Logger        any // *slog.Logger — kept as any to avoid circular imports
-	DB            any // *pgxpool.Pool
-	NATSClient    any // *nats.Client
-	EvidenceStore any // *evidence.Store
-	PolicyEngine  any // *policy.Engine
-	OllamaBridge  any // ollama client
-	ConnectorSvc  any // connector service
+	Logger           any // *slog.Logger
+	DB               any // *pgxpool.Pool
+	NATSClient       any // *nats.Client
+	EvidenceStore    any // *evidence.Store
+	PolicyEngine     any // *policy.Engine
+	OllamaBridge     any // ollama client
+	ConnectorSvc     any // *connector.Service
+	PlaybookLoader   any // *playbook.Loader
+	PlaybookExecutor any // *playbook.Executor
 }
 
 // Task is a unit of work dispatched to an agent.

@@ -8,13 +8,15 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/alokemajumder/AegisClaw/internal/playbook"
 	"github.com/alokemajumder/AegisClaw/pkg/agentsdk"
 )
 
-// PlannerAgent selects validations based on exposure graph, asset type, and policy.
+// PlannerAgent selects validations based on asset type, allowed tiers, and loaded playbooks.
 type PlannerAgent struct {
-	logger *slog.Logger
-	deps   agentsdk.AgentDeps
+	logger    *slog.Logger
+	deps      agentsdk.AgentDeps
+	playbooks []playbook.Playbook
 }
 
 func NewPlannerAgent() *PlannerAgent {
@@ -31,6 +33,20 @@ func (a *PlannerAgent) Init(_ context.Context, deps agentsdk.AgentDeps) error {
 	} else {
 		a.logger = slog.Default()
 	}
+
+	// Load playbooks from PlaybookLoader dependency
+	if loader, ok := deps.PlaybookLoader.(*playbook.Loader); ok {
+		pbs, err := loader.LoadAll("playbooks")
+		if err != nil {
+			a.logger.Warn("failed to load playbooks, will use fallback plan", "error", err)
+		} else {
+			a.playbooks = pbs
+			a.logger.Info("planner loaded playbooks", "count", len(pbs))
+		}
+	} else {
+		a.logger.Warn("no playbook loader available, will use fallback plan")
+	}
+
 	a.logger.Info("planner agent initialized")
 	return nil
 }
@@ -41,50 +57,20 @@ func (a *PlannerAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (*ag
 		"engagement_id", task.EngagementID,
 	)
 
-	// In full implementation:
-	// 1. Query assets in scope from engagement allowlist
-	// 2. Consult Ollama for exposure graph analysis
-	// 3. Select playbooks matching asset types and allowed tiers
-	// 4. Order steps by priority and dependency
-	// 5. Return ordered list of AgentTasks for execution
+	var steps []agentsdk.Task
 
-	// Stub: generate example validation steps
-	steps := []agentsdk.Task{
-		{
-			ID:           uuid.New().String(),
-			RunID:        task.RunID,
-			EngagementID: task.EngagementID,
-			OrgID:        task.OrgID,
-			StepNumber:   1,
-			Action:       "verify_siem_telemetry_health",
-			Tier:         0,
-			CreatedAt:    time.Now().UTC(),
-		},
-		{
-			ID:           uuid.New().String(),
-			RunID:        task.RunID,
-			EngagementID: task.EngagementID,
-			OrgID:        task.OrgID,
-			StepNumber:   2,
-			Action:       "verify_edr_agent_reporting",
-			Tier:         0,
-			CreatedAt:    time.Now().UTC(),
-		},
-		{
-			ID:           uuid.New().String(),
-			RunID:        task.RunID,
-			EngagementID: task.EngagementID,
-			OrgID:        task.OrgID,
-			StepNumber:   3,
-			Action:       "execute_benign_marker_test",
-			Tier:         1,
-			CreatedAt:    time.Now().UTC(),
-		},
+	if len(a.playbooks) > 0 && task.PolicyContext != nil {
+		steps = a.planFromPlaybooks(task)
+	}
+
+	// Fallback to default steps if no playbooks matched
+	if len(steps) == 0 {
+		steps = a.fallbackPlan(task)
 	}
 
 	outputs, _ := json.Marshal(map[string]any{
 		"planned_steps": len(steps),
-		"tiers_used":    []int{0, 1},
+		"source":        a.planSource(steps),
 	})
 
 	return &agentsdk.Result{
@@ -94,6 +80,94 @@ func (a *PlannerAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (*ag
 		NextSteps:   steps,
 		CompletedAt: time.Now().UTC(),
 	}, nil
+}
+
+func (a *PlannerAgent) planFromPlaybooks(task *agentsdk.Task) []agentsdk.Task {
+	// Filter playbooks by allowed tiers
+	filtered := playbook.FilterByTier(a.playbooks, task.PolicyContext.AllowedTiers)
+	if len(filtered) == 0 {
+		a.logger.Info("no playbooks match allowed tiers", "tiers", task.PolicyContext.AllowedTiers)
+		return nil
+	}
+
+	var steps []agentsdk.Task
+	stepNum := 1
+
+	for _, pb := range filtered {
+		for _, pbStep := range pb.Steps {
+			inputsData, _ := json.Marshal(map[string]any{
+				"playbook_id":   pb.ID,
+				"playbook_name": pb.Name,
+				"step_name":     pbStep.Name,
+				"action":        pbStep.Action,
+				"technique_id":  pb.TechniqueID,
+				"inputs":        pbStep.Inputs,
+			})
+
+			steps = append(steps, agentsdk.Task{
+				ID:           uuid.New().String(),
+				RunID:        task.RunID,
+				EngagementID: task.EngagementID,
+				OrgID:        task.OrgID,
+				StepNumber:   stepNum,
+				Action:       pbStep.Action,
+				Tier:         pb.Tier,
+				Inputs:       inputsData,
+				CreatedAt:    time.Now().UTC(),
+			})
+			stepNum++
+		}
+	}
+
+	a.logger.Info("planned steps from playbooks",
+		"playbooks_matched", len(filtered),
+		"steps_generated", len(steps),
+	)
+	return steps
+}
+
+func (a *PlannerAgent) fallbackPlan(task *agentsdk.Task) []agentsdk.Task {
+	a.logger.Info("using fallback validation plan")
+
+	return []agentsdk.Task{
+		{
+			ID:           uuid.New().String(),
+			RunID:        task.RunID,
+			EngagementID: task.EngagementID,
+			OrgID:        task.OrgID,
+			StepNumber:   1,
+			Action:       "query_telemetry",
+			Tier:         0,
+			CreatedAt:    time.Now().UTC(),
+		},
+		{
+			ID:           uuid.New().String(),
+			RunID:        task.RunID,
+			EngagementID: task.EngagementID,
+			OrgID:        task.OrgID,
+			StepNumber:   2,
+			Action:       "check_edr_agents",
+			Tier:         0,
+			CreatedAt:    time.Now().UTC(),
+		},
+		{
+			ID:           uuid.New().String(),
+			RunID:        task.RunID,
+			EngagementID: task.EngagementID,
+			OrgID:        task.OrgID,
+			StepNumber:   3,
+			Action:       "drop_marker_file",
+			Tier:         1,
+			CreatedAt:    time.Now().UTC(),
+		},
+	}
+}
+
+func (a *PlannerAgent) planSource(steps []agentsdk.Task) string {
+	if len(a.playbooks) > 0 {
+		return "playbooks"
+	}
+	return "fallback"
 }
 
 func (a *PlannerAgent) Shutdown(_ context.Context) error {

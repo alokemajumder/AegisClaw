@@ -1,0 +1,57 @@
+id: tier2-dcsync-test
+name: DCSync Detection Test
+description: Simulate a DCSync replication request to test detection of unauthorized directory replication
+tier: 2
+technique_id: "T1003.006"
+asset_types:
+  - identity
+  - server
+tags:
+  - detection-test
+  - credential-access
+  - dcsync
+  - active-directory
+steps:
+  - name: Simulate replication request
+    agent_type: executor
+    action: simulate_dcsync
+    description: Perform a controlled directory replication request using a non-DC account to trigger DCSync detection
+    inputs:
+      replication_type: benign_drsgetncchanges
+      target_domain: "aegisclaw-test.local"
+      source_account: "aegisclaw-test-account"
+      description: "Benign DCSync simulation for detection testing"
+    expected_telemetry:
+      source: identity_provider
+      event_type: directory_replication
+      search_query: "DRSGetNCChanges non-DC source"
+      max_latency_sec: 60
+      indicators:
+        operation: DRSGetNCChanges
+        source_is_dc: false
+        action: replication_request
+    cleanup:
+      action: revoke_replication_rights
+      description: Ensure the test account replication rights are revoked
+      inputs:
+        target_account: "aegisclaw-test-account"
+        target_domain: "aegisclaw-test.local"
+    timeout_seconds: 60
+  - name: Verify DCSync detection alert
+    agent_type: detection_evaluator
+    action: verify_detection
+    description: Check that an alert was raised for the unauthorized directory replication request
+    inputs:
+      check_type: alert_fired
+      expected_severity: critical
+      expected_technique: "T1003.006"
+      max_latency_sec: 60
+    timeout_seconds: 120
+  - name: Verify cleanup
+    agent_type: executor
+    action: verify_cleanup
+    description: Confirm the test account no longer holds replication rights and no artifacts remain
+    inputs:
+      target_account: "aegisclaw-test-account"
+      check_type: replication_rights
+    timeout_seconds: 30

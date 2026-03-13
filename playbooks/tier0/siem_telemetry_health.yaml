@@ -1,0 +1,33 @@
+id: tier0-siem-telemetry-health
+name: SIEM Telemetry Health Check
+description: Verify that the SIEM is receiving logs from expected sources
+tier: 0
+technique_id: "DS0029"
+asset_types:
+  - server
+  - endpoint
+  - application
+tags:
+  - telemetry
+  - health-check
+  - siem
+steps:
+  - name: Query SIEM for recent logs
+    agent_type: telemetry_verifier
+    action: query_telemetry
+    description: Query the SIEM connector for log ingestion within the last hour
+    inputs:
+      time_range_minutes: 60
+      min_expected_events: 1
+    expected_telemetry:
+      source: siem
+      event_type: log_ingestion
+      max_latency_sec: 300
+    timeout_seconds: 30
+  - name: Verify log source coverage
+    agent_type: telemetry_verifier
+    action: verify_detection
+    description: Check that all expected log sources are actively sending data
+    inputs:
+      check_type: source_coverage
+    timeout_seconds: 30

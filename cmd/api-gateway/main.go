@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,8 +15,11 @@ import (
 	"github.com/go-chi/cors"
 	"github.com/go-chi/httprate"
 
+	"github.com/alokemajumder/AegisClaw/internal/api"
 	"github.com/alokemajumder/AegisClaw/internal/auth"
 	"github.com/alokemajumder/AegisClaw/internal/config"
+	"github.com/alokemajumder/AegisClaw/internal/database"
+	natspkg "github.com/alokemajumder/AegisClaw/internal/nats"
 	"github.com/alokemajumder/AegisClaw/internal/observability"
 )
 
@@ -41,7 +43,40 @@ func main() {
 		defer shutdown(ctx)
 	}
 
+	// Database
+	pool, err := database.New(ctx, cfg.Database, logger)
+	if err != nil {
+		logger.Error("database connection failed", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
+
+	// NATS (optional — API gateway works without it but can't publish events)
+	var publisher *natspkg.Publisher
+	natsClient, err := natspkg.New(ctx, cfg.NATS, logger)
+	if err != nil {
+		logger.Warn("NATS connection failed (running without async messaging)", "error", err)
+	} else {
+		defer natsClient.Close()
+		publisher = natspkg.NewPublisher(natsClient.JetStream, logger)
+	}
+
+	// Auth — validate JWT secret
+	if cfg.Auth.JWTSecret == "" {
+		logger.Error("AEGISCLAW_AUTH_JWT_SECRET is not set — refusing to start with empty JWT secret")
+		os.Exit(1)
+	}
+	if cfg.Auth.JWTSecret == "dev-secret-change-in-production" {
+		if cfg.Server.Environment == "production" {
+			logger.Error("refusing to start: default development JWT secret is not allowed in production — set AEGISCLAW_AUTH_JWT_SECRET")
+			os.Exit(1)
+		}
+		logger.Warn("WARNING: Using default development JWT secret. Set AEGISCLAW_AUTH_JWT_SECRET for production!")
+	}
 	tokenSvc := auth.NewTokenService(cfg.Auth)
+
+	// Handler with all dependencies
+	h := api.NewHandler(pool, tokenSvc, publisher, logger)
 
 	r := chi.NewRouter()
 
@@ -51,8 +86,24 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(httprate.LimitByIP(100, time.Minute))
+	// Security response headers
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("X-Frame-Options", "DENY")
+			w.Header().Set("X-XSS-Protection", "1; mode=block")
+			w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+			w.Header().Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'none'")
+			w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+			next.ServeHTTP(w, r)
+		})
+	})
+	corsOrigins := cfg.Server.CORSOrigins
+	if len(corsOrigins) == 0 {
+		corsOrigins = []string{"http://localhost:3000"}
+	}
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000"},
+		AllowedOrigins:   corsOrigins,
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		ExposedHeaders:   []string{"Link"},
@@ -62,16 +113,27 @@ func main() {
 
 	// Health check (unauthenticated)
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "healthy", "service": "api-gateway"})
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"healthy","service":"api-gateway"}`)
+	})
+	r.Get("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := pool.Ping(r.Context()); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, `{"status":"not_ready","service":"api-gateway","error":"database: %s"}`, err.Error())
+			return
+		}
+		fmt.Fprintf(w, `{"status":"ready","service":"api-gateway"}`)
 	})
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
-		// Auth (unauthenticated)
+		// Auth (unauthenticated) — stricter rate limit on login/refresh
 		r.Route("/auth", func(r chi.Router) {
-			r.Post("/login", stub("login"))
-			r.Post("/refresh", stub("refresh"))
-			r.Get("/me", stub("me"))
+			r.With(httprate.LimitByIP(10, time.Minute)).Post("/login", h.Login)
+			r.With(httprate.LimitByIP(10, time.Minute)).Post("/refresh", h.Refresh)
+			r.With(tokenSvc.Middleware).Get("/me", h.Me)
 		})
 
 		// Authenticated routes
@@ -79,123 +141,97 @@ func main() {
 			r.Use(tokenSvc.Middleware)
 
 			// Dashboard
-			r.Get("/dashboard/summary", stub("dashboard_summary"))
-			r.Get("/dashboard/activity", stub("dashboard_activity"))
-			r.Get("/dashboard/health", stub("dashboard_health"))
+			r.Get("/dashboard/summary", h.DashboardSummary)
+			r.Get("/dashboard/activity", h.DashboardActivity)
+			r.Get("/dashboard/health", h.DashboardHealth)
 
 			// Assets
 			r.Route("/assets", func(r chi.Router) {
-				r.Get("/", stub("list_assets"))
-				r.Post("/", stub("create_asset"))
-				r.Post("/import", stub("import_assets"))
-				r.Get("/{assetID}", stub("get_asset"))
-				r.Put("/{assetID}", stub("update_asset"))
-				r.Delete("/{assetID}", stub("delete_asset"))
-				r.Get("/{assetID}/findings", stub("asset_findings"))
+				r.Get("/", h.ListAssets)
+				r.Post("/", h.CreateAsset)
+				r.Get("/{assetID}", h.GetAsset)
+				r.Put("/{assetID}", h.UpdateAsset)
+				r.Delete("/{assetID}", h.DeleteAsset)
+				r.Get("/{assetID}/findings", h.ListAssetFindings)
 			})
 
 			// Engagements
 			r.Route("/engagements", func(r chi.Router) {
-				r.Get("/", stub("list_engagements"))
-				r.Post("/", stub("create_engagement"))
-				r.Get("/{engagementID}", stub("get_engagement"))
-				r.Put("/{engagementID}", stub("update_engagement"))
-				r.Delete("/{engagementID}", stub("delete_engagement"))
-				r.Post("/{engagementID}/activate", stub("activate_engagement"))
-				r.Post("/{engagementID}/pause", stub("pause_engagement"))
-				r.Get("/{engagementID}/runs", stub("list_engagement_runs"))
-				r.Post("/{engagementID}/runs", stub("trigger_run"))
+				r.Get("/", h.ListEngagements)
+				r.Post("/", h.CreateEngagement)
+				r.Get("/{engagementID}", h.GetEngagement)
+				r.Put("/{engagementID}", h.UpdateEngagement)
+				r.Delete("/{engagementID}", h.DeleteEngagement)
+				r.Post("/{engagementID}/activate", h.ActivateEngagement)
+				r.Post("/{engagementID}/pause", h.PauseEngagement)
+				r.Get("/{engagementID}/runs", h.ListEngagementRuns)
+				r.Post("/{engagementID}/runs", h.TriggerRun)
 			})
 
 			// Runs
 			r.Route("/runs", func(r chi.Router) {
-				r.Get("/", stub("list_runs"))
-				r.Get("/{runID}", stub("get_run"))
-				r.Get("/{runID}/steps", stub("list_run_steps"))
-				r.Get("/{runID}/receipt", stub("get_run_receipt"))
-				r.Post("/{runID}/kill", stub("kill_run"))
-				r.Post("/{runID}/pause", stub("pause_run"))
-				r.Post("/{runID}/resume", stub("resume_run"))
+				r.Get("/", h.ListRuns)
+				r.Get("/{runID}", h.GetRun)
+				r.Get("/{runID}/steps", h.ListRunSteps)
+				r.Get("/{runID}/receipt", h.GetRunReceipt)
+				r.Post("/{runID}/kill", h.KillRun)
+				r.Post("/{runID}/pause", h.PauseRun)
+				r.Post("/{runID}/resume", h.ResumeRun)
 			})
 
 			// Findings
 			r.Route("/findings", func(r chi.Router) {
-				r.Get("/", stub("list_findings"))
-				r.Get("/clusters", stub("list_finding_clusters"))
-				r.Get("/{findingID}", stub("get_finding"))
-				r.Put("/{findingID}", stub("update_finding"))
-				r.Post("/{findingID}/ticket", stub("create_finding_ticket"))
-				r.Post("/{findingID}/retest", stub("retest_finding"))
+				r.Get("/", h.ListFindings)
+				r.Get("/{findingID}", h.GetFinding)
+				r.Put("/{findingID}", h.UpdateFinding)
+				r.Post("/{findingID}/ticket", h.CreateFindingTicket)
+				r.Post("/{findingID}/retest", h.RetestFinding)
 			})
 
-			// Connectors (settings-driven management)
+			// Connectors
 			r.Route("/connectors", func(r chi.Router) {
-				r.Get("/registry", stub("list_connector_registry"))
-				r.Get("/registry/{connectorType}", stub("get_connector_type"))
-				r.Get("/settings", stub("get_connector_settings"))
-				r.Put("/settings", stub("update_connector_settings"))
-				r.Get("/settings/{category}", stub("get_category_settings"))
-				r.Put("/settings/{category}", stub("update_category_settings"))
-				r.Get("/", stub("list_connector_instances"))
-				r.Post("/", stub("create_connector_instance"))
-				r.Get("/{connectorID}", stub("get_connector_instance"))
-				r.Put("/{connectorID}", stub("update_connector_instance"))
-				r.Delete("/{connectorID}", stub("delete_connector_instance"))
-				r.Patch("/{connectorID}/enable", stub("toggle_connector"))
-				r.Post("/{connectorID}/test", stub("test_connector"))
-				r.Get("/{connectorID}/health", stub("get_connector_health"))
-				r.Post("/{connectorID}/health/check", stub("trigger_health_check"))
+				r.Get("/registry", h.ListConnectorRegistry)
+				r.Get("/registry/{connectorType}", h.GetConnectorType)
+				r.Get("/", h.ListConnectorInstances)
+				r.Post("/", h.CreateConnectorInstance)
+				r.Get("/{connectorID}", h.GetConnectorInstance)
+				r.Put("/{connectorID}", h.UpdateConnectorInstance)
+				r.Delete("/{connectorID}", h.DeleteConnectorInstance)
+				r.Patch("/{connectorID}/enable", h.ToggleConnector)
+				r.Post("/{connectorID}/test", h.TestConnector)
+				r.Get("/{connectorID}/health", h.GetConnectorHealth)
+				r.Post("/{connectorID}/health/check", h.TriggerHealthCheck)
 			})
 
 			// Approvals
 			r.Route("/approvals", func(r chi.Router) {
-				r.Get("/", stub("list_approvals"))
-				r.Get("/{approvalID}", stub("get_approval"))
-				r.Post("/{approvalID}/approve", stub("approve"))
-				r.Post("/{approvalID}/deny", stub("deny"))
+				r.Get("/", h.ListApprovals)
+				r.Get("/{approvalID}", h.GetApproval)
+				r.Post("/{approvalID}/approve", h.ApproveRequest)
+				r.Post("/{approvalID}/deny", h.DenyRequest)
 			})
 
 			// Reports
 			r.Route("/reports", func(r chi.Router) {
-				r.Get("/", stub("list_reports"))
-				r.Post("/generate", stub("generate_report"))
-				r.Get("/{reportID}", stub("get_report"))
-				r.Get("/{reportID}/download", stub("download_report"))
-			})
-
-			// Evidence
-			r.Route("/evidence", func(r chi.Router) {
-				r.Get("/", stub("list_evidence"))
-				r.Get("/{evidenceID}", stub("get_evidence"))
-				r.Get("/{evidenceID}/download", stub("download_evidence"))
-			})
-
-			// Policies
-			r.Route("/policies", func(r chi.Router) {
-				r.Get("/", stub("list_policies"))
-				r.Post("/", stub("create_policy"))
-				r.Get("/{policyID}", stub("get_policy"))
-				r.Put("/{policyID}", stub("update_policy"))
+				r.Get("/", h.ListReports)
+				r.Post("/generate", h.GenerateReport)
+				r.Get("/{reportID}", h.GetReport)
+				r.Get("/{reportID}/download", h.DownloadReport)
 			})
 
 			// Coverage
-			r.Get("/coverage", stub("get_coverage_matrix"))
-			r.Get("/coverage/gaps", stub("get_coverage_gaps"))
-			r.Get("/coverage/drift", stub("get_coverage_drift"))
-
-			// Settings
-			r.Get("/settings", stub("get_settings"))
-			r.Put("/settings", stub("update_settings"))
+			r.Get("/coverage", h.GetCoverage)
+			r.Get("/coverage/gaps", h.GetCoverageGaps)
 
 			// Admin
 			r.Route("/admin", func(r chi.Router) {
 				r.Use(auth.RequireRole("admin"))
-				r.Get("/users", stub("list_users"))
-				r.Post("/users", stub("create_user"))
-				r.Put("/users/{userID}", stub("update_user"))
-				r.Get("/audit-log", stub("query_audit_log"))
-				r.Get("/system/health", handleSystemHealth())
-				r.Post("/system/kill-switch", stub("kill_switch"))
+				r.Get("/users", h.ListUsers)
+				r.Post("/users", h.CreateUser)
+				r.Put("/users/{userID}", h.UpdateUser)
+				r.Get("/audit-log", h.QueryAuditLog)
+				r.Get("/system/health", h.SystemHealth)
+				r.Post("/system/kill-switch", h.KillSwitch)
 			})
 		})
 	})
@@ -231,31 +267,4 @@ func main() {
 	}
 
 	logger.Info("api-gateway stopped")
-}
-
-func stub(name string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"data":    nil,
-			"message": fmt.Sprintf("endpoint %q not yet implemented", name),
-		})
-	}
-}
-
-func handleSystemHealth() http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{
-			"data": map[string]any{
-				"status":  "healthy",
-				"service": "api-gateway",
-				"version": "0.1.0",
-			},
-		})
-	}
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
 }

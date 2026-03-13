@@ -1,0 +1,59 @@
+id: tier1-registry-persistence-test
+name: Registry Persistence Detection Test
+description: Write and remove a benign autorun registry key to test persistence detection via boot or logon autostart execution
+tier: 1
+technique_id: "T1547.001"
+asset_types:
+  - endpoint
+  - server
+tags:
+  - detection-test
+  - persistence
+  - registry
+steps:
+  - name: Create benign autorun registry key
+    agent_type: executor
+    action: create_registry_key
+    description: Write a benign autorun registry key under HKCU\Software\Microsoft\Windows\CurrentVersion\Run to trigger persistence detection
+    inputs:
+      registry_hive: HKCU
+      registry_path: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+      value_name: AegisClawTest
+      value_data: "C:\\Windows\\System32\\calc.exe"
+      description: "Benign autorun key for detection testing"
+    expected_telemetry:
+      source: edr
+      event_type: registry_modification
+      search_query: "AegisClawTest CurrentVersion\\Run"
+      max_latency_sec: 120
+      indicators:
+        registry_key: "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        value_name: AegisClawTest
+        action: create
+    cleanup:
+      action: delete_registry_key
+      description: Remove the benign autorun registry key
+      inputs:
+        registry_hive: HKCU
+        registry_path: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+        value_name: AegisClawTest
+    timeout_seconds: 60
+  - name: Verify persistence detection alert
+    agent_type: detection_evaluator
+    action: verify_detection
+    description: Check that an alert was raised for the autorun registry key creation
+    inputs:
+      check_type: alert_fired
+      expected_severity: medium
+      expected_technique: "T1547.001"
+      max_latency_sec: 120
+    timeout_seconds: 120
+  - name: Verify cleanup
+    agent_type: executor
+    action: verify_cleanup
+    description: Confirm the benign autorun registry key has been removed
+    inputs:
+      registry_hive: HKCU
+      registry_path: "Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+      value_name: AegisClawTest
+    timeout_seconds: 30

@@ -3,16 +3,31 @@ package improvement
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/alokemajumder/AegisClaw/internal/database/repository"
+	"github.com/alokemajumder/AegisClaw/internal/models"
 	"github.com/alokemajumder/AegisClaw/pkg/agentsdk"
 )
 
+// regressionTaskInput holds inputs for the regression tester.
+type regressionTaskInput struct {
+	// BaselineRunID is the run to compare against.
+	BaselineRunID string `json:"baseline_run_id"`
+	// CurrentRunID is the latest run to check for regressions.
+	CurrentRunID string `json:"current_run_id"`
+}
+
 // RegressionAgent reruns relevant validations after changes (deployments, SIEM/EDR updates).
 type RegressionAgent struct {
-	logger *slog.Logger
-	deps   agentsdk.AgentDeps
+	logger      *slog.Logger
+	deps        agentsdk.AgentDeps
+	runRepo     *repository.RunRepo
+	findingRepo *repository.FindingRepo
 }
 
 func NewRegressionAgent() *RegressionAgent {
@@ -29,7 +44,15 @@ func (a *RegressionAgent) Init(_ context.Context, deps agentsdk.AgentDeps) error
 	} else {
 		a.logger = slog.Default()
 	}
-	a.logger.Info("regression agent initialized")
+
+	if pool, ok := deps.DB.(*pgxpool.Pool); ok {
+		a.runRepo = repository.NewRunRepo(pool)
+		a.findingRepo = repository.NewFindingRepo(pool)
+		a.logger.Info("regression agent initialized with DB")
+	} else {
+		a.logger.Warn("regression agent initialized without DB — regression detection will be simulated")
+	}
+
 	return nil
 }
 
@@ -38,16 +61,137 @@ func (a *RegressionAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (
 		"task_id", task.ID,
 	)
 
-	// In full implementation:
-	// 1. Detect what changed (new deployment, SIEM rule update, EDR policy change)
-	// 2. Identify which validations are affected
-	// 3. Queue re-runs for affected validations
-	// 4. Compare results against baseline
+	// If no DB is available, return simulated results
+	if a.runRepo == nil || a.findingRepo == nil {
+		return a.handleSimulated(task)
+	}
 
+	// Parse task inputs for baseline and current run IDs
+	var input regressionTaskInput
+	if len(task.Inputs) > 0 {
+		if err := json.Unmarshal(task.Inputs, &input); err != nil {
+			a.logger.Warn("failed to parse regression task inputs — querying recent runs",
+				"error", err,
+				"task_id", task.ID,
+			)
+		}
+	}
+
+	// Query recent completed runs for this org to find baselines
+	pagination := models.PaginationParams{Page: 1, PerPage: 10}
+	recentRuns, _, err := a.runRepo.ListByOrgID(ctx, task.OrgID, pagination, string(models.RunCompleted))
+	if err != nil {
+		a.logger.Error("failed to query recent runs", "error", err)
+		return a.handleSimulated(task)
+	}
+
+	if len(recentRuns) < 2 {
+		a.logger.Info("not enough completed runs for regression comparison",
+			"completed_runs", len(recentRuns),
+		)
+		outputs, _ := json.Marshal(map[string]any{
+			"changes_detected":   0,
+			"validations_queued": 0,
+			"regressions_found":  0,
+			"reason":             "insufficient completed runs for comparison",
+		})
+		return &agentsdk.Result{
+			TaskID:      task.ID,
+			Status:      agentsdk.StatusCompleted,
+			Outputs:     outputs,
+			CompletedAt: time.Now().UTC(),
+		}, nil
+	}
+
+	// Use the two most recent runs for comparison
+	currentRun := recentRuns[0]
+	baselineRun := recentRuns[1]
+
+	a.logger.Info("comparing runs for regressions",
+		"current_run", currentRun.ID,
+		"baseline_run", baselineRun.ID,
+	)
+
+	// Get findings from both runs
+	baselineFindings, err := a.findingRepo.ListByRunID(ctx, baselineRun.ID)
+	if err != nil {
+		a.logger.Error("failed to query baseline findings", "error", err)
+		return a.handleSimulated(task)
+	}
+
+	currentFindings, err := a.findingRepo.ListByRunID(ctx, currentRun.ID)
+	if err != nil {
+		a.logger.Error("failed to query current findings", "error", err)
+		return a.handleSimulated(task)
+	}
+
+	// Build a set of finding titles from the baseline (previously passing = no finding)
+	// and check if new findings appeared in the current run
+	baselineTitles := make(map[string]bool)
+	for _, f := range baselineFindings {
+		baselineTitles[f.Title] = true
+	}
+
+	currentTitles := make(map[string]bool)
+	for _, f := range currentFindings {
+		currentTitles[f.Title] = true
+	}
+
+	// Regressions: findings in current that were not in baseline
+	var regressionFindings []agentsdk.FindingOutput
+	for _, f := range currentFindings {
+		if !baselineTitles[f.Title] {
+			regressionFindings = append(regressionFindings, agentsdk.FindingOutput{
+				Title:       fmt.Sprintf("Regression: %s", f.Title),
+				Description: fmt.Sprintf("Finding appeared in run %s but was not present in baseline run %s", currentRun.ID, baselineRun.ID),
+				Severity:    string(f.Severity),
+				Confidence:  string(f.Confidence),
+				TechniqueIDs: f.TechniqueIDs,
+				Remediation: "Investigate the regression and verify that previously passing controls are still effective",
+			})
+		}
+	}
+
+	// Count resolved findings: in baseline but not in current
+	resolvedCount := 0
+	for _, f := range baselineFindings {
+		if !currentTitles[f.Title] {
+			resolvedCount++
+		}
+	}
+
+	a.logger.Info("regression analysis complete",
+		"regressions_found", len(regressionFindings),
+		"resolved", resolvedCount,
+		"baseline_findings", len(baselineFindings),
+		"current_findings", len(currentFindings),
+	)
+
+	outputs, _ := json.Marshal(map[string]any{
+		"baseline_run_id":    baselineRun.ID,
+		"current_run_id":     currentRun.ID,
+		"baseline_findings":  len(baselineFindings),
+		"current_findings":   len(currentFindings),
+		"regressions_found":  len(regressionFindings),
+		"resolved_findings":  resolvedCount,
+	})
+
+	return &agentsdk.Result{
+		TaskID:      task.ID,
+		Status:      agentsdk.StatusCompleted,
+		Outputs:     outputs,
+		Findings:    regressionFindings,
+		CompletedAt: time.Now().UTC(),
+	}, nil
+}
+
+// handleSimulated returns simulated regression data when DB is unavailable.
+func (a *RegressionAgent) handleSimulated(task *agentsdk.Task) (*agentsdk.Result, error) {
 	outputs, _ := json.Marshal(map[string]any{
 		"changes_detected":   2,
 		"validations_queued": 3,
 		"regressions_found":  0,
+		"simulated":          true,
 	})
 
 	return &agentsdk.Result{

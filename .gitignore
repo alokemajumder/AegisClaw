@@ -39,6 +39,17 @@ dist/
 build/
 *.tar.gz
 
+# Go binary outputs (root level)
+/api-gateway
+/orchestrator
+/runner
+/evidence-vault
+/connector-service
+/reporting-service
+/ollama-bridge
+/scheduler
+/aegisclaw
+
 # Docker
 .docker/
 
@@ -56,3 +67,4 @@ Thumbs.db
 tmp/
 *.tmp
 *.log
+evidence-service

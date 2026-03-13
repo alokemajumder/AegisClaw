@@ -5,48 +5,106 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"google.golang.org/grpc"
 
+	"github.com/alokemajumder/AegisClaw/connectors/edr/defender"
+	"github.com/alokemajumder/AegisClaw/internal/grpcutil"
+	"github.com/alokemajumder/AegisClaw/connectors/itsm/servicenow"
+	"github.com/alokemajumder/AegisClaw/connectors/notifications/slack"
+	"github.com/alokemajumder/AegisClaw/connectors/notifications/teams"
+	"github.com/alokemajumder/AegisClaw/connectors/siem/sentinel"
 	"github.com/alokemajumder/AegisClaw/internal/config"
+	"github.com/alokemajumder/AegisClaw/internal/connector"
+	"github.com/alokemajumder/AegisClaw/internal/database"
+	"github.com/alokemajumder/AegisClaw/internal/database/repository"
 	"github.com/alokemajumder/AegisClaw/internal/observability"
-)
-
-const (
-	serviceName = "connector-service"
-	listenPort  = 9093
+	"github.com/alokemajumder/AegisClaw/pkg/connectorsdk"
 )
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Load configuration.
 	cfg, err := config.Load("")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
+		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
 
-	// Set up structured logger.
-	logger := observability.NewLogger(serviceName, cfg.Observability.LogLevel)
+	logger := observability.NewLogger("connector-service", cfg.Observability.LogLevel)
 	slog.SetDefault(logger)
 
-	// Create gRPC server.
-	grpcServer := grpc.NewServer()
+	// Database
+	pool, err := database.New(ctx, cfg.Database, logger)
+	if err != nil {
+		logger.Error("database connection failed", "error", err)
+		os.Exit(1)
+	}
+	defer pool.Close()
 
-	// Start listening.
-	addr := fmt.Sprintf(":%d", listenPort)
+	// Register all connector factories
+	registry := connectorsdk.NewRegistry()
+	_ = registry.Register("sentinel", func() connectorsdk.Connector { return sentinel.New() })
+	_ = registry.Register("defender", func() connectorsdk.Connector { return defender.New() })
+	_ = registry.Register("servicenow", func() connectorsdk.Connector { return servicenow.New() })
+	_ = registry.Register("teams", func() connectorsdk.Connector { return teams.New() })
+	_ = registry.Register("slack", func() connectorsdk.Connector { return slack.New() })
+
+	logger.Info("connector registry initialized", "types", registry.ListTypes())
+
+	// Connector service
+	connRepo := repository.NewConnectorInstanceRepo(pool)
+	svc := connector.NewService(registry, connRepo, logger)
+	defer svc.Close()
+
+	// Start health check loop
+	go svc.StartHealthLoop(ctx, 5*time.Minute)
+
+	// gRPC server
+	port := cfg.Server.GRPCBasePort + 3 // 9093
+	addr := fmt.Sprintf(":%d", port)
 	lis, err := net.Listen("tcp", addr)
 	if err != nil {
-		logger.Error("failed to listen", "address", addr, "error", err)
+		logger.Error("failed to listen", "port", port, "error", err)
 		os.Exit(1)
 	}
 
-	// Handle graceful shutdown.
+	grpcServer := grpc.NewServer(grpcutil.ServerOptions(logger)...)
+
+	// Health check endpoints
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"status":"healthy","service":"connector-service"}`)
+	})
+	healthMux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := pool.Ping(r.Context()); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, `{"status":"not_ready","service":"connector-service","error":"database: %s"}`, err.Error())
+			return
+		}
+		fmt.Fprintf(w, `{"status":"ready","service":"connector-service"}`)
+	})
+	healthServer := &http.Server{
+		Addr:         ":10093",
+		Handler:      healthMux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+	go func() {
+		logger.Info("health endpoint starting", "addr", healthServer.Addr)
+		if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("health server error", "error", err)
+		}
+	}()
+
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -54,14 +112,15 @@ func main() {
 		sig := <-sigCh
 		logger.Info("received shutdown signal", "signal", sig.String())
 		grpcServer.GracefulStop()
+		healthServer.Shutdown(context.Background())
 		cancel()
 	}()
 
-	logger.Info("starting service", "service", serviceName, "port", listenPort)
+	logger.Info("connector-service starting", "port", port)
 	if err := grpcServer.Serve(lis); err != nil {
-		logger.Error("gRPC server exited with error", "error", err)
+		logger.Error("gRPC server error", "error", err)
 		os.Exit(1)
 	}
 
-	logger.Info("service stopped", "service", serviceName)
+	logger.Info("connector-service stopped")
 }

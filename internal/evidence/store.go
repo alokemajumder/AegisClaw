@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -14,6 +15,46 @@ import (
 
 	"github.com/alokemajumder/AegisClaw/internal/config"
 )
+
+const (
+	// MaxUploadSize is the maximum allowed evidence artifact size (100MB).
+	MaxUploadSize = 100 << 20
+	// MaxReceiptSize is the maximum allowed receipt size (10MB).
+	MaxReceiptSize = 10 << 20
+)
+
+// allowedContentTypes are the MIME types accepted for evidence uploads.
+var allowedContentTypes = map[string]bool{
+	"application/json":         true,
+	"application/xml":          true,
+	"application/pdf":          true,
+	"application/zip":          true,
+	"application/gzip":         true,
+	"text/plain":               true,
+	"text/csv":                 true,
+	"text/xml":                 true,
+	"text/html":                true,
+	"image/png":                true,
+	"image/jpeg":               true,
+	"application/octet-stream": true,
+}
+
+// validateFilename checks for path traversal and invalid characters.
+func validateFilename(name string) error {
+	if name == "" {
+		return fmt.Errorf("filename is required")
+	}
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("filename must not contain '..'")
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("filename must not contain path separators")
+	}
+	if len(name) > 255 {
+		return fmt.Errorf("filename must not exceed 255 characters")
+	}
+	return nil
+}
 
 // Store provides evidence artifact storage backed by MinIO.
 type Store struct {
@@ -66,6 +107,19 @@ func NewStore(ctx context.Context, cfg config.MinIOConfig, logger *slog.Logger) 
 
 // Upload stores an evidence artifact.
 func (s *Store) Upload(ctx context.Context, runID, name, contentType string, data []byte) (*Artifact, error) {
+	if err := validateFilename(name); err != nil {
+		return nil, fmt.Errorf("invalid filename: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, fmt.Errorf("upload data is empty")
+	}
+	if len(data) > MaxUploadSize {
+		return nil, fmt.Errorf("upload size %d exceeds maximum %d bytes", len(data), MaxUploadSize)
+	}
+	if contentType != "" && !allowedContentTypes[contentType] {
+		return nil, fmt.Errorf("content type %q is not allowed", contentType)
+	}
+
 	id := fmt.Sprintf("ev_%s", uuid.New().String()[:12])
 	objectName := fmt.Sprintf("%s/%s/%s", runID, id, name)
 
@@ -145,6 +199,13 @@ func (s *Store) HealthCheck(ctx context.Context) error {
 
 // UploadReceipt stores an immutable run receipt.
 func (s *Store) UploadReceipt(ctx context.Context, runID string, receiptData []byte) error {
+	if len(receiptData) == 0 {
+		return fmt.Errorf("receipt data is empty")
+	}
+	if len(receiptData) > MaxReceiptSize {
+		return fmt.Errorf("receipt size %d exceeds maximum %d bytes", len(receiptData), MaxReceiptSize)
+	}
+
 	objectName := fmt.Sprintf("receipts/%s.json", runID)
 
 	reader := bytes.NewReader(receiptData)

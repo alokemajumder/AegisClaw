@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ─────────────────────────────────────────────
   # Infrastructure
@@ -8,10 +6,11 @@ services:
   postgres:
     image: postgres:16
     container_name: aegisclaw-postgres
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: aegisclaw
-      POSTGRES_PASSWORD: aegisclaw
-      POSTGRES_DB: aegisclaw
+      POSTGRES_USER: ${POSTGRES_USER:-aegisclaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aegisclaw}
+      POSTGRES_DB: ${POSTGRES_DB:-aegisclaw}
     ports:
       - "5432:5432"
     volumes:
@@ -21,12 +20,18 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
     networks:
       - aegisclaw-net
 
   nats:
     image: nats:2.10
     container_name: aegisclaw-nats
+    restart: unless-stopped
     command: ["--jetstream"]
     ports:
       - "4222:4222"
@@ -36,16 +41,22 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
     networks:
       - aegisclaw-net
 
   minio:
     image: minio/minio
     container_name: aegisclaw-minio
+    restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -56,45 +67,74 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
     networks:
       - aegisclaw-net
 
   ollama:
     image: ollama/ollama
     container_name: aegisclaw-ollama
+    restart: unless-stopped
     ports:
       - "11434:11434"
     volumes:
       - ollama-models:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
     networks:
       - aegisclaw-net
 
   jaeger:
     image: jaegertracing/all-in-one:1.53
     container_name: aegisclaw-jaeger
+    restart: unless-stopped
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
     ports:
       - "16686:16686"
       - "4317:4317"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
     networks:
       - aegisclaw-net
 
   grafana:
     image: grafana/grafana
     container_name: aegisclaw-grafana
+    restart: unless-stopped
     ports:
       - "3001:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: admin
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
     networks:
       - aegisclaw-net
 
   prometheus:
     image: prom/prometheus
     container_name: aegisclaw-prometheus
+    restart: unless-stopped
     ports:
       - "9190:9090"
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
     networks:
       - aegisclaw-net
 
@@ -107,21 +147,39 @@ services:
       context: ../
       dockerfile: deploy/docker/Dockerfile.api-gateway
     container_name: aegisclaw-api-gateway
+    restart: unless-stopped
     ports:
       - "8080:8080"
     environment:
       AEGISCLAW_SERVER_API_PORT: "8080"
+      AEGISCLAW_AUTH_JWT_SECRET: ${AEGISCLAW_AUTH_JWT_SECRET:-dev-secret-change-in-production}
+      AEGISCLAW_SERVER_CORS_ORIGINS: ${AEGISCLAW_SERVER_CORS_ORIGINS:-http://localhost:3000}
       AEGISCLAW_DATABASE_HOST: postgres
       AEGISCLAW_DATABASE_PORT: "5432"
-      AEGISCLAW_DATABASE_USER: aegisclaw
-      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
-      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_DATABASE_USER: ${POSTGRES_USER:-aegisclaw}
+      AEGISCLAW_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-aegisclaw}
+      AEGISCLAW_DATABASE_NAME: ${POSTGRES_DB:-aegisclaw}
       AEGISCLAW_NATS_URL: nats://nats:4222
       AEGISCLAW_MINIO_ENDPOINT: minio:9000
-      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
-      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      AEGISCLAW_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       AEGISCLAW_OLLAMA_URL: http://ollama:11434
       AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -135,21 +193,38 @@ services:
       context: ../
       dockerfile: deploy/docker/Dockerfile.orchestrator
     container_name: aegisclaw-orchestrator
+    restart: unless-stopped
     ports:
       - "9090:9090"
     environment:
       AEGISCLAW_SERVER_GRPC_PORT: "9090"
+      AEGISCLAW_AUTH_JWT_SECRET: ${AEGISCLAW_AUTH_JWT_SECRET:-dev-secret-change-in-production}
       AEGISCLAW_DATABASE_HOST: postgres
       AEGISCLAW_DATABASE_PORT: "5432"
-      AEGISCLAW_DATABASE_USER: aegisclaw
-      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
-      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_DATABASE_USER: ${POSTGRES_USER:-aegisclaw}
+      AEGISCLAW_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-aegisclaw}
+      AEGISCLAW_DATABASE_NAME: ${POSTGRES_DB:-aegisclaw}
       AEGISCLAW_NATS_URL: nats://nats:4222
       AEGISCLAW_MINIO_ENDPOINT: minio:9000
-      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
-      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      AEGISCLAW_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       AEGISCLAW_OLLAMA_URL: http://ollama:11434
       AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:10090/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -163,21 +238,37 @@ services:
       context: ../
       dockerfile: deploy/docker/Dockerfile.runner
     container_name: aegisclaw-runner
+    restart: unless-stopped
     ports:
       - "9091:9091"
     environment:
       AEGISCLAW_SERVER_GRPC_PORT: "9091"
       AEGISCLAW_DATABASE_HOST: postgres
       AEGISCLAW_DATABASE_PORT: "5432"
-      AEGISCLAW_DATABASE_USER: aegisclaw
-      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
-      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_DATABASE_USER: ${POSTGRES_USER:-aegisclaw}
+      AEGISCLAW_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-aegisclaw}
+      AEGISCLAW_DATABASE_NAME: ${POSTGRES_DB:-aegisclaw}
       AEGISCLAW_NATS_URL: nats://nats:4222
       AEGISCLAW_MINIO_ENDPOINT: minio:9000
-      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
-      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      AEGISCLAW_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       AEGISCLAW_OLLAMA_URL: http://ollama:11434
       AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:10091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -191,20 +282,36 @@ services:
       context: ../
       dockerfile: deploy/docker/Dockerfile.evidence
     container_name: aegisclaw-evidence-service
+    restart: unless-stopped
     ports:
       - "9092:9092"
     environment:
       AEGISCLAW_SERVER_GRPC_PORT: "9092"
       AEGISCLAW_DATABASE_HOST: postgres
       AEGISCLAW_DATABASE_PORT: "5432"
-      AEGISCLAW_DATABASE_USER: aegisclaw
-      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
-      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_DATABASE_USER: ${POSTGRES_USER:-aegisclaw}
+      AEGISCLAW_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-aegisclaw}
+      AEGISCLAW_DATABASE_NAME: ${POSTGRES_DB:-aegisclaw}
       AEGISCLAW_NATS_URL: nats://nats:4222
       AEGISCLAW_MINIO_ENDPOINT: minio:9000
-      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
-      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      AEGISCLAW_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:10092/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -220,20 +327,36 @@ services:
       context: ../
       dockerfile: deploy/docker/Dockerfile.connector
     container_name: aegisclaw-connector-service
+    restart: unless-stopped
     ports:
       - "9093:9093"
     environment:
       AEGISCLAW_SERVER_GRPC_PORT: "9093"
       AEGISCLAW_DATABASE_HOST: postgres
       AEGISCLAW_DATABASE_PORT: "5432"
-      AEGISCLAW_DATABASE_USER: aegisclaw
-      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
-      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_DATABASE_USER: ${POSTGRES_USER:-aegisclaw}
+      AEGISCLAW_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-aegisclaw}
+      AEGISCLAW_DATABASE_NAME: ${POSTGRES_DB:-aegisclaw}
       AEGISCLAW_NATS_URL: nats://nats:4222
       AEGISCLAW_MINIO_ENDPOINT: minio:9000
-      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
-      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      AEGISCLAW_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:10093/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -247,20 +370,36 @@ services:
       context: ../
       dockerfile: deploy/docker/Dockerfile.reporting
     container_name: aegisclaw-reporting-service
+    restart: unless-stopped
     ports:
       - "9094:9094"
     environment:
       AEGISCLAW_SERVER_GRPC_PORT: "9094"
       AEGISCLAW_DATABASE_HOST: postgres
       AEGISCLAW_DATABASE_PORT: "5432"
-      AEGISCLAW_DATABASE_USER: aegisclaw
-      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
-      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_DATABASE_USER: ${POSTGRES_USER:-aegisclaw}
+      AEGISCLAW_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-aegisclaw}
+      AEGISCLAW_DATABASE_NAME: ${POSTGRES_DB:-aegisclaw}
       AEGISCLAW_NATS_URL: nats://nats:4222
       AEGISCLAW_MINIO_ENDPOINT: minio:9000
-      AEGISCLAW_MINIO_ACCESS_KEY: minioadmin
-      AEGISCLAW_MINIO_SECRET_KEY: minioadmin
+      AEGISCLAW_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      AEGISCLAW_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:10094/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -274,18 +413,34 @@ services:
       context: ../
       dockerfile: deploy/docker/Dockerfile.ollama-bridge
     container_name: aegisclaw-ollama-bridge
+    restart: unless-stopped
     ports:
       - "9095:9095"
     environment:
       AEGISCLAW_SERVER_GRPC_PORT: "9095"
       AEGISCLAW_DATABASE_HOST: postgres
       AEGISCLAW_DATABASE_PORT: "5432"
-      AEGISCLAW_DATABASE_USER: aegisclaw
-      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
-      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_DATABASE_USER: ${POSTGRES_USER:-aegisclaw}
+      AEGISCLAW_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-aegisclaw}
+      AEGISCLAW_DATABASE_NAME: ${POSTGRES_DB:-aegisclaw}
       AEGISCLAW_NATS_URL: nats://nats:4222
       AEGISCLAW_OLLAMA_URL: http://ollama:11434
       AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:10095/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -301,17 +456,33 @@ services:
       context: ../
       dockerfile: deploy/docker/Dockerfile.scheduler
     container_name: aegisclaw-scheduler
+    restart: unless-stopped
     ports:
       - "9096:9096"
     environment:
       AEGISCLAW_SERVER_GRPC_PORT: "9096"
       AEGISCLAW_DATABASE_HOST: postgres
       AEGISCLAW_DATABASE_PORT: "5432"
-      AEGISCLAW_DATABASE_USER: aegisclaw
-      AEGISCLAW_DATABASE_PASSWORD: aegisclaw
-      AEGISCLAW_DATABASE_NAME: aegisclaw
+      AEGISCLAW_DATABASE_USER: ${POSTGRES_USER:-aegisclaw}
+      AEGISCLAW_DATABASE_PASSWORD: ${POSTGRES_PASSWORD:-aegisclaw}
+      AEGISCLAW_DATABASE_NAME: ${POSTGRES_DB:-aegisclaw}
       AEGISCLAW_NATS_URL: nats://nats:4222
       AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:10096/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       postgres:
         condition: service_healthy
@@ -325,10 +496,26 @@ services:
       context: ../
       dockerfile: deploy/docker/Dockerfile.web
     container_name: aegisclaw-web
+    restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://api-gateway:8080
+      API_URL: http://api-gateway:8080
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - api-gateway
     networks:

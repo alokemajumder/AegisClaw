@@ -1,0 +1,63 @@
+id: tier0-log-source-inventory
+name: Log Source Inventory Validation
+description: Validate that all expected log sources are actively sending data to the SIEM
+tier: 0
+technique_id: "DS0029"
+asset_types:
+  - server
+  - endpoint
+  - application
+  - identity
+tags:
+  - telemetry
+  - health-check
+  - siem
+  - inventory
+steps:
+  - name: Query endpoint log sources
+    agent_type: telemetry_verifier
+    action: query_telemetry
+    description: Verify that endpoint security log sources are actively sending data to the SIEM
+    inputs:
+      time_range_minutes: 60
+      min_expected_events: 1
+      source_category: endpoint
+    expected_telemetry:
+      source: siem
+      event_type: log_ingestion
+      max_latency_sec: 300
+    timeout_seconds: 30
+  - name: Query network log sources
+    agent_type: telemetry_verifier
+    action: query_telemetry
+    description: Verify that network security log sources are actively sending data to the SIEM
+    inputs:
+      time_range_minutes: 60
+      min_expected_events: 1
+      source_category: network
+    expected_telemetry:
+      source: siem
+      event_type: log_ingestion
+      max_latency_sec: 300
+    timeout_seconds: 30
+  - name: Query identity log sources
+    agent_type: telemetry_verifier
+    action: query_telemetry
+    description: Verify that identity and authentication log sources are actively sending data to the SIEM
+    inputs:
+      time_range_minutes: 60
+      min_expected_events: 1
+      source_category: identity
+    expected_telemetry:
+      source: siem
+      event_type: log_ingestion
+      max_latency_sec: 300
+    timeout_seconds: 30
+  - name: Verify source completeness
+    agent_type: telemetry_verifier
+    action: verify_detection
+    description: Check that all registered log sources have reported within the expected timeframe
+    inputs:
+      check_type: source_coverage
+      max_stale_hours: 24
+    timeout_seconds: 30

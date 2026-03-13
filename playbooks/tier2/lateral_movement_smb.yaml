@@ -1,0 +1,62 @@
+id: tier2-lateral-movement-smb
+name: SMB Lateral Movement Detection Test
+description: Test SMB lateral movement detection by performing a benign remote SMB connection
+tier: 2
+technique_id: "T1021.002"
+asset_types:
+  - endpoint
+  - server
+tags:
+  - detection-test
+  - lateral-movement
+  - smb
+  - network
+steps:
+  - name: Attempt benign SMB connection
+    agent_type: executor
+    action: simulate_smb_connection
+    description: Initiate a benign SMB connection to a target host admin share to trigger lateral movement detection
+    inputs:
+      connection_type: benign_smb_access
+      target_share: "\\\\aegisclaw-target\\C$"
+      authentication_method: ntlm
+      description: "Benign SMB lateral movement test for detection validation"
+    expected_telemetry:
+      source: edr
+      event_type: network_connection
+      search_query: "SMB C$ admin share connection"
+      max_latency_sec: 60
+      indicators:
+        destination_port: 445
+        share_name: "C$"
+        action: smb_connection
+    cleanup:
+      action: disconnect_session
+      description: Disconnect the SMB session and remove any mapped connections
+      inputs:
+        target_share: "\\\\aegisclaw-target\\C$"
+    timeout_seconds: 60
+  - name: Verify lateral movement alert
+    agent_type: detection_evaluator
+    action: verify_detection
+    description: Check that the EDR or SIEM raised a lateral movement alert for the SMB admin share access
+    inputs:
+      check_type: alert_fired
+      expected_severity: high
+      expected_technique: "T1021.002"
+      max_latency_sec: 120
+    timeout_seconds: 120
+  - name: Verify network telemetry
+    agent_type: telemetry_verifier
+    action: query_telemetry
+    description: Verify that network security monitoring captured the SMB connection in SIEM logs
+    inputs:
+      time_range_minutes: 30
+      min_expected_events: 1
+      event_category: network_connection
+      destination_port: 445
+    expected_telemetry:
+      source: siem
+      event_type: network_connection
+      max_latency_sec: 300
+    timeout_seconds: 30

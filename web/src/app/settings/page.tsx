@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,9 +13,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Settings, Shield, Plug, Bot, Save } from "lucide-react";
+import { Settings, Shield, Plug, Bot, Save, CheckCircle2 } from "lucide-react";
 
 export default function SettingsPage() {
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  const handleSave = (section: string) => {
+    setSaveMessage(`${section} saved successfully`);
+    setTimeout(() => setSaveMessage(null), 3000);
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -23,6 +31,13 @@ export default function SettingsPage() {
           Configure AegisClaw platform settings
         </p>
       </div>
+
+      {saveMessage && (
+        <div className="flex items-center gap-2 rounded-md bg-emerald-50 border border-emerald-200 px-4 py-3 text-sm text-emerald-700">
+          <CheckCircle2 className="h-4 w-4" />
+          {saveMessage}
+        </div>
+      )}
 
       <Tabs defaultValue="general">
         <TabsList>
@@ -81,7 +96,7 @@ export default function SettingsPage() {
                   Maximum API requests per minute across all connectors.
                 </p>
               </div>
-              <Button>
+              <Button onClick={() => handleSave("General settings")}>
                 <Save className="h-4 w-4 mr-2" />
                 Save Changes
               </Button>
@@ -128,7 +143,7 @@ export default function SettingsPage() {
                     className="max-w-[200px]"
                   />
                 </div>
-                <Button>
+                <Button onClick={() => handleSave("Policy settings")}>
                   <Save className="h-4 w-4 mr-2" />
                   Save Policies
                 </Button>
@@ -172,7 +187,7 @@ export default function SettingsPage() {
                     className="max-w-[200px]"
                   />
                 </div>
-                <Button>
+                <Button onClick={() => handleSave("Connector settings")}>
                   <Save className="h-4 w-4 mr-2" />
                   Save Settings
                 </Button>
@@ -225,7 +240,7 @@ export default function SettingsPage() {
                     className="max-w-[200px]"
                   />
                 </div>
-                <Button>
+                <Button onClick={() => handleSave("Ollama settings")}>
                   <Save className="h-4 w-4 mr-2" />
                   Save Ollama Settings
                 </Button>

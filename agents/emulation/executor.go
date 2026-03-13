@@ -6,13 +6,15 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/alokemajumder/AegisClaw/internal/playbook"
 	"github.com/alokemajumder/AegisClaw/pkg/agentsdk"
 )
 
-// ExecutorAgent dispatches validation steps to the Runner and verifies cleanup.
+// ExecutorAgent dispatches validation steps to the playbook executor and verifies cleanup.
 type ExecutorAgent struct {
-	logger *slog.Logger
-	deps   agentsdk.AgentDeps
+	logger   *slog.Logger
+	deps     agentsdk.AgentDeps
+	executor *playbook.Executor
 }
 
 func NewExecutorAgent() *ExecutorAgent {
@@ -29,6 +31,16 @@ func (a *ExecutorAgent) Init(_ context.Context, deps agentsdk.AgentDeps) error {
 	} else {
 		a.logger = slog.Default()
 	}
+
+	// Get playbook executor from deps
+	if exec, ok := deps.PlaybookExecutor.(*playbook.Executor); ok {
+		a.executor = exec
+		a.logger.Info("executor agent using real playbook executor")
+	} else {
+		a.executor = playbook.NewExecutor(a.logger)
+		a.logger.Info("executor agent created local playbook executor")
+	}
+
 	a.logger.Info("executor agent initialized")
 	return nil
 }
@@ -40,24 +52,61 @@ func (a *ExecutorAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (*a
 		"tier", task.Tier,
 	)
 
-	// In full implementation:
-	// 1. Dispatch the step to a Runner via gRPC (sandboxed execution)
-	// 2. Wait for completion
-	// 3. Verify cleanup was performed
-	// 4. Collect execution artifacts
+	// Parse playbook info from inputs if available
+	var inputs map[string]any
+	if task.Inputs != nil {
+		_ = json.Unmarshal(task.Inputs, &inputs)
+	}
 
-	outputs, _ := json.Marshal(map[string]any{
-		"executed":        true,
-		"action":          task.Action,
-		"cleanup_verified": true,
-		"duration_ms":     150,
-	})
+	// Build a playbook step for the executor
+	pbStep := &playbook.PlaybookStep{
+		Name:    task.Action,
+		Action:  task.Action,
+		Inputs:  make(map[string]any),
+	}
+
+	// Copy inputs from the task into the playbook step
+	if stepInputs, ok := inputs["inputs"].(map[string]any); ok {
+		pbStep.Inputs = stepInputs
+	}
+	if stepName, ok := inputs["step_name"].(string); ok {
+		pbStep.Name = stepName
+	}
+
+	pb := &playbook.Playbook{
+		Tier: task.Tier,
+	}
+	if pbID, ok := inputs["playbook_id"].(string); ok {
+		pb.ID = pbID
+	}
+	if pbName, ok := inputs["playbook_name"].(string); ok {
+		pb.Name = pbName
+	}
+
+	// Execute via playbook executor
+	stepResult, err := a.executor.ExecuteStep(ctx, pb, pbStep)
+	if err != nil {
+		return &agentsdk.Result{
+			TaskID:      task.ID,
+			Status:      agentsdk.StatusFailed,
+			Error:       err.Error(),
+			CompletedAt: time.Now().UTC(),
+		}, nil
+	}
+
+	// Map step result status to agent result status
+	status := agentsdk.StatusCompleted
+	if stepResult.Status == "failed" {
+		status = agentsdk.StatusFailed
+	}
 
 	return &agentsdk.Result{
 		TaskID:      task.ID,
-		Status:      agentsdk.StatusCompleted,
-		Outputs:     outputs,
-		CleanupDone: true,
+		Status:      status,
+		Outputs:     stepResult.Outputs,
+		EvidenceIDs: stepResult.EvidenceIDs,
+		CleanupDone: stepResult.CleanupDone,
+		Error:       stepResult.Error,
 		CompletedAt: time.Now().UTC(),
 	}, nil
 }
