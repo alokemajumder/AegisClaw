@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -152,4 +153,43 @@ func readJSON(r *http.Request, v any) error {
 
 func claimsFromRequest(r *http.Request) (*auth.Claims, bool) {
 	return auth.UserFromContext(r.Context())
+}
+
+// audit writes an entry to the immutable audit log. Failures are logged as
+// warnings but never fail the parent request.
+func (h *Handler) audit(ctx context.Context, r *http.Request, claims *auth.Claims, action, resourceType string, resourceID *string, details json.RawMessage) {
+	if details == nil {
+		details = json.RawMessage(`{}`)
+	}
+	ip := parseIP(r.RemoteAddr)
+	entry := &models.AuditLog{
+		OrgID:        claims.OrgID,
+		ActorType:    "user",
+		ActorID:      claims.UserID.String(),
+		Action:       action,
+		ResourceType: resourceType,
+		ResourceID:   resourceID,
+		Details:      details,
+		IPAddress:    ip,
+	}
+	if err := h.AuditLogs.Create(ctx, entry); err != nil {
+		h.Logger.Warn("failed to write audit log",
+			"action", action,
+			"resource_type", resourceType,
+			"error", err,
+		)
+	}
+}
+
+// parseIP extracts the IP portion from an address that may include a port.
+func parseIP(remoteAddr string) *net.IP {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil
+	}
+	return &ip
 }

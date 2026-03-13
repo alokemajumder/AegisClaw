@@ -2,9 +2,11 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/alokemajumder/AegisClaw/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -172,6 +174,25 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		RefreshToken: refreshToken,
 		TokenType:    "Bearer",
 	})
+}
+
+// Logout revokes the current access token.
+func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+	authHeader := r.Header.Get("Authorization")
+	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+	if tokenStr == "" || tokenStr == authHeader {
+		writeError(w, http.StatusBadRequest, "invalid_request", "missing authorization header")
+		return
+	}
+
+	claims, err := h.TokenSvc.ValidateToken(tokenStr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_token", "invalid token")
+		return
+	}
+
+	h.TokenSvc.Blacklist.Revoke(tokenStr, claims.ExpiresAt.Time)
+	writeJSON(w, http.StatusOK, models.APIResponse{Data: map[string]string{"message": "logged out successfully"}})
 }
 
 func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {

@@ -19,6 +19,7 @@ import (
 	"github.com/alokemajumder/AegisClaw/internal/auth"
 	"github.com/alokemajumder/AegisClaw/internal/config"
 	"github.com/alokemajumder/AegisClaw/internal/database"
+	"github.com/alokemajumder/AegisClaw/internal/metrics"
 	natspkg "github.com/alokemajumder/AegisClaw/internal/nats"
 	"github.com/alokemajumder/AegisClaw/internal/observability"
 )
@@ -73,7 +74,7 @@ func main() {
 		}
 		logger.Warn("WARNING: Using default development JWT secret. Set AEGISCLAW_AUTH_JWT_SECRET for production!")
 	}
-	tokenSvc := auth.NewTokenService(cfg.Auth)
+	tokenSvc := auth.NewTokenService(ctx, cfg.Auth)
 
 	// Handler with all dependencies
 	h := api.NewHandler(pool, tokenSvc, publisher, logger)
@@ -86,6 +87,8 @@ func main() {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(httprate.LimitByIP(100, time.Minute))
+	// Prometheus metrics
+	r.Use(metrics.Middleware)
 	// Security response headers
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -126,6 +129,7 @@ func main() {
 		}
 		fmt.Fprintf(w, `{"status":"ready","service":"api-gateway"}`)
 	})
+	r.Handle("/metrics", metrics.Handler())
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -134,6 +138,7 @@ func main() {
 			r.With(httprate.LimitByIP(10, time.Minute)).Post("/login", h.Login)
 			r.With(httprate.LimitByIP(10, time.Minute)).Post("/refresh", h.Refresh)
 			r.With(tokenSvc.Middleware).Get("/me", h.Me)
+			r.With(tokenSvc.Middleware).Post("/logout", h.Logout)
 		})
 
 		// Authenticated routes

@@ -88,6 +88,9 @@ func (h *Handler) CreateAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resID := asset.ID.String()
+	h.audit(r.Context(), r, claims, "asset.create", "asset", &resID, nil)
+
 	writeJSON(w, http.StatusCreated, models.APIResponse{Data: asset})
 }
 
@@ -170,6 +173,10 @@ func (h *Handler) UpdateAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to update asset")
 		return
 	}
+
+	resID := asset.ID.String()
+	h.audit(r.Context(), r, claims, "asset.update", "asset", &resID, nil)
+
 	writeData(w, asset)
 }
 
@@ -195,6 +202,10 @@ func (h *Handler) DeleteAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "Asset not found")
 		return
 	}
+
+	resID := id.String()
+	h.audit(r.Context(), r, claims, "asset.delete", "asset", &resID, nil)
+
 	writeData(w, map[string]string{"status": "deleted"})
 }
 

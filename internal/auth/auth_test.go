@@ -16,7 +16,7 @@ import (
 )
 
 func newTestTokenService(expiry time.Duration) *TokenService {
-	return NewTokenService(config.AuthConfig{
+	return NewTokenService(context.Background(), config.AuthConfig{
 		JWTSecret:     "test-secret-key-for-unit-tests-only",
 		TokenExpiry:   expiry,
 		RefreshExpiry: 24 * time.Hour,
@@ -112,11 +112,11 @@ func TestValidateToken_InvalidString(t *testing.T) {
 }
 
 func TestValidateToken_WrongSecret(t *testing.T) {
-	svc1 := NewTokenService(config.AuthConfig{
+	svc1 := NewTokenService(context.Background(), config.AuthConfig{
 		JWTSecret:   "secret-one",
 		TokenExpiry: 15 * time.Minute,
 	})
-	svc2 := NewTokenService(config.AuthConfig{
+	svc2 := NewTokenService(context.Background(), config.AuthConfig{
 		JWTSecret:   "secret-two",
 		TokenExpiry: 15 * time.Minute,
 	})

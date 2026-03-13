@@ -125,6 +125,9 @@ func (h *Handler) CreateConnectorInstance(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	resID := ci.ID.String()
+	h.audit(r.Context(), r, claims, "connector.create", "connector_instance", &resID, nil)
+
 	writeJSON(w, http.StatusCreated, models.APIResponse{Data: ci})
 }
 
@@ -235,6 +238,10 @@ func (h *Handler) DeleteConnectorInstance(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusNotFound, "not_found", "Connector not found")
 		return
 	}
+
+	resID := id.String()
+	h.audit(r.Context(), r, claims, "connector.delete", "connector_instance", &resID, nil)
+
 	writeData(w, map[string]string{"status": "deleted"})
 }
 
@@ -261,6 +268,11 @@ func (h *Handler) ToggleConnector(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to toggle connector")
 		return
 	}
+
+	resID := id.String()
+	details, _ := json.Marshal(map[string]bool{"enabled": ci.Enabled})
+	h.audit(r.Context(), r, claims, "connector.toggle", "connector_instance", &resID, details)
+
 	writeData(w, map[string]any{"enabled": ci.Enabled})
 }
 

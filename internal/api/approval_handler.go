@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/alokemajumder/AegisClaw/internal/models"
@@ -85,6 +86,11 @@ func (h *Handler) ApproveRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to approve request")
 		return
 	}
+
+	resID := id.String()
+	details, _ := json.Marshal(map[string]string{"rationale": req.Rationale})
+	h.audit(r.Context(), r, claims, "approval.approve", "approval", &resID, details)
+
 	writeData(w, map[string]string{"status": "approved"})
 }
 
@@ -118,5 +124,10 @@ func (h *Handler) DenyRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to deny request")
 		return
 	}
+
+	resID := id.String()
+	details, _ := json.Marshal(map[string]string{"rationale": req.Rationale})
+	h.audit(r.Context(), r, claims, "approval.deny", "approval", &resID, details)
+
 	writeData(w, map[string]string{"status": "denied"})
 }

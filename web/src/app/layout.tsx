@@ -15,7 +15,10 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AegisClaw — Autonomous Security Validation",
+  title: {
+    default: "AegisClaw",
+    template: "%s | AegisClaw",
+  },
   description:
     "Continuously validate your security controls with safe, ATT&CK-mapped emulations.",
 };

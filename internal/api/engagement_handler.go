@@ -100,6 +100,9 @@ func (h *Handler) CreateEngagement(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	resID := eng.ID.String()
+	h.audit(r.Context(), r, claims, "engagement.create", "engagement", &resID, nil)
+
 	writeJSON(w, http.StatusCreated, models.APIResponse{Data: eng})
 }
 
@@ -232,6 +235,10 @@ func (h *Handler) ActivateEngagement(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to activate engagement")
 		return
 	}
+
+	resID := id.String()
+	h.audit(r.Context(), r, claims, "engagement.activate", "engagement", &resID, nil)
+
 	writeData(w, map[string]string{"status": "active"})
 }
 
@@ -257,6 +264,10 @@ func (h *Handler) PauseEngagement(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to pause engagement")
 		return
 	}
+
+	resID := id.String()
+	h.audit(r.Context(), r, claims, "engagement.pause", "engagement", &resID, nil)
+
 	writeData(w, map[string]string{"status": "paused"})
 }
 

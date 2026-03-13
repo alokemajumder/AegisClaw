@@ -103,6 +103,10 @@ func (h *Handler) UpdateFinding(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to update finding")
 		return
 	}
+
+	resID := finding.ID.String()
+	h.audit(r.Context(), r, claims, "finding.update", "finding", &resID, nil)
+
 	writeData(w, finding)
 }
 
