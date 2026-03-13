@@ -74,11 +74,12 @@ type OllamaConfig struct {
 }
 
 type AuthConfig struct {
-	JWTSecret       string    `mapstructure:"jwt_secret"`
-	JWTSecretRef    string    `mapstructure:"jwt_secret_ref"`
+	JWTSecret       string        `mapstructure:"jwt_secret"`
+	JWTSecretRef    string        `mapstructure:"jwt_secret_ref"`
 	TokenExpiry     time.Duration `mapstructure:"token_expiry"`
 	RefreshExpiry   time.Duration `mapstructure:"refresh_expiry"`
-	SSO             SSOConfig `mapstructure:"sso"`
+	ReceiptHMACKey  string        `mapstructure:"receipt_hmac_key"`
+	SSO             SSOConfig     `mapstructure:"sso"`
 }
 
 type SSOConfig struct {
@@ -132,6 +133,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ollama.timeout_seconds", 120)
 	v.SetDefault("auth.token_expiry", "15m")
 	v.SetDefault("auth.refresh_expiry", "7d")
+	v.SetDefault("auth.receipt_hmac_key", "dev-receipt-key-change-in-production")
 	v.SetDefault("policy.default_pack", "default")
 	v.SetDefault("policy.global_rate_limit", 100)
 	v.SetDefault("policy.global_concurrency_cap", 20)

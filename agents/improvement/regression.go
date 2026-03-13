@@ -188,10 +188,10 @@ func (a *RegressionAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (
 // handleSimulated returns simulated regression data when DB is unavailable.
 func (a *RegressionAgent) handleSimulated(task *agentsdk.Task) (*agentsdk.Result, error) {
 	outputs, _ := json.Marshal(map[string]any{
-		"changes_detected":   2,
-		"validations_queued": 3,
+		"changes_detected":   0,
+		"validations_queued": 0,
 		"regressions_found":  0,
-		"simulated":          true,
+		"no_data":            true,
 	})
 
 	return &agentsdk.Result{

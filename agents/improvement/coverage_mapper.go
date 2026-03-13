@@ -166,10 +166,10 @@ func (a *CoverageMapperAgent) HandleTask(ctx context.Context, task *agentsdk.Tas
 // handleSimulated returns simulated coverage data when DB or inputs are unavailable.
 func (a *CoverageMapperAgent) handleSimulated(task *agentsdk.Task) (*agentsdk.Result, error) {
 	outputs, _ := json.Marshal(map[string]any{
-		"techniques_updated": 5,
-		"blind_spots_found":  1,
-		"coverage_pct":       78.5,
-		"simulated":          true,
+		"techniques_updated": 0,
+		"blind_spots_found":  0,
+		"coverage_pct":       0.0,
+		"no_data":            true,
 	})
 
 	return &agentsdk.Result{

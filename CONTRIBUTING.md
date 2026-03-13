@@ -135,6 +135,9 @@ Look for issues tagged with `good-first-issue` — these are accessible for newc
 ### Connector Development
 Adding new connectors is a great way to contribute. The platform currently ships 5 connectors (Sentinel, Defender, ServiceNow, Teams, Slack) with many more planned. See [Connector Development Guide](docs/connector-development.md).
 
+### Agent Development
+The platform uses 12 agents across 4 squads, all wired into a 3-phase `RunEngine` pipeline. Agents implement the `agentsdk.Agent` interface (`Name`, `Squad`, `Init`, `HandleTask`, `Shutdown`). Dependencies are injected via `agentsdk.AgentDeps` using `any`-typed fields to avoid circular imports — agents type-assert in their `Init()` methods. When adding or modifying agents, ensure they return honest data (zeros/empty) when dependencies are unavailable rather than simulated/fake results.
+
 ### Playbook Library
 Expanding the validation playbook library helps everyone. Currently 13 playbooks across Tier 0-2. See [Playbook Authoring Guide](docs/playbook-authoring.md).
 

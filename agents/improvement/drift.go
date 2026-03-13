@@ -179,9 +179,9 @@ func (a *DriftAgent) handleSimulated(task *agentsdk.Task) (*agentsdk.Result, err
 	outputs, _ := json.Marshal(map[string]any{
 		"drift_detected": false,
 		"regressions":    0,
-		"improvements":   1,
-		"unchanged":      15,
-		"simulated":      true,
+		"improvements":   0,
+		"unchanged":      0,
+		"no_data":        true,
 	})
 
 	return &agentsdk.Result{

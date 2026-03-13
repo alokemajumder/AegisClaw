@@ -156,12 +156,12 @@ func (a *TelemetryVerifierAgent) verifyWithConnectors(ctx context.Context, task 
 
 func (a *TelemetryVerifierAgent) simulatedVerify(task *agentsdk.Task) (*agentsdk.Result, error) {
 	outputs, _ := json.Marshal(map[string]any{
-		"telemetry_found":  true,
-		"sources_checked":  []string{"siem", "edr"},
-		"events_matched":   3,
-		"events_expected":  3,
-		"coverage_pct":     100,
-		"simulated":        true,
+		"telemetry_found":        false,
+		"sources_checked":        []string{},
+		"events_matched":         0,
+		"events_expected":        0,
+		"coverage_pct":           0,
+		"no_connector_configured": true,
 	})
 
 	return &agentsdk.Result{

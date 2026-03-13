@@ -81,6 +81,7 @@ func main() {
 	findingRepo := repository.NewFindingRepo(pool)
 	engRepo := repository.NewEngagementRepo(pool)
 	connInstanceRepo := repository.NewConnectorInstanceRepo(pool)
+	coverageRepo := repository.NewCoverageRepo(pool)
 
 	// Evidence store (optional — continues without if MinIO unavailable)
 	var evidenceStore *evidence.Store
@@ -110,19 +111,21 @@ func main() {
 
 	// Agent dependencies
 	agentDeps := agentsdk.AgentDeps{
-		Logger:           logger,
-		DB:               pool,
-		EvidenceStore:    evidenceStore,
-		ConnectorSvc:     connectorSvc,
-		PlaybookLoader:   pbLoader,
-		PlaybookExecutor: pbExecutor,
+		Logger:                logger,
+		DB:                    pool,
+		EvidenceStore:         evidenceStore,
+		ConnectorSvc:          connectorSvc,
+		PlaybookLoader:        pbLoader,
+		PlaybookExecutor:      pbExecutor,
+		ReceiptHMACKey:        []byte(cfg.Auth.ReceiptHMACKey),
+		ConnectorInstanceRepo: connInstanceRepo,
 	}
 
 	// Agent registry (initializes all agents with deps)
 	agentReg := orchestrator.NewAgentRegistry(logger, agentDeps)
 
 	// Run engine
-	engine := orchestrator.NewRunEngine(agentReg, runRepo, stepRepo, findingRepo, engRepo, killSwitch, logger)
+	engine := orchestrator.NewRunEngine(agentReg, runRepo, stepRepo, findingRepo, engRepo, connectorSvc, coverageRepo, killSwitch, logger)
 
 	// Consumer
 	consumer := aegisnats.NewConsumer(nc.JetStream, logger)

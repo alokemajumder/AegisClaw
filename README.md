@@ -68,18 +68,22 @@ The platform is **agents-first**: autonomous agent squads (Red + Blue + Purple l
 - **Tier 2 (Sensitive)**: Actions impacting auth/ops require explicit human approval
 - **Tier 3 (Prohibited)**: DoS, exfil, destructive actions — blocked by default
 
-### Agent Squads
-- **Governance Squad**: Policy enforcement, approval gates, immutable run receipts
-- **Emulation Squad (Red)**: Validation planning, safe execution, evidence capture
-- **Validation Squad (Blue)**: Telemetry verification, detection evaluation, automated ticketing
-- **Improvement Squad (Purple)**: Coverage matrix, regression testing, drift detection
+### Agent Squads (12 agents, fully wired pipeline)
+
+All 12 agents are wired into a 3-phase `RunEngine` pipeline that executes end-to-end on every validation run:
+
+- **Governance Squad**: PolicyEnforcer (tier/allowlist enforcement), ApprovalGate (human approval for Tier 2+), ReceiptAgent (HMAC-SHA256 signed audit receipts)
+- **Emulation Squad (Red)**: Planner (playbook loading + step ordering), Executor (safe step execution), EvidenceAgent (artifact capture to MinIO)
+- **Validation Squad (Blue)**: TelemetryVerifier (SIEM/EDR telemetry queries), DetectionEvaluator (alert verification + latency measurement), ResponseAutomator (ITSM tickets + notifications)
+- **Improvement Squad (Purple)**: CoverageMapper (ATT&CK coverage matrix updates), DriftAgent (pre/post-run coverage comparison), RegressionAgent (cross-run finding comparison)
 
 ### Enterprise-Grade Controls
-- Audit-grade immutable run receipts (HMAC-signed)
-- Target allowlists + exclusions (hard enforced)
+- Audit-grade immutable run receipts (HMAC-SHA256 signed with full step data + scope snapshot)
+- Target allowlists + exclusions (hard enforced — empty allowlist blocks all Tier 1+ actions)
 - Time windows, blackout periods, rate limits, concurrency caps
 - Circuit breakers and global kill switch
 - RBAC with 4 roles (admin, operator, approver, viewer)
+- Pre-run coverage snapshots for drift detection
 
 ### Local LLM Reasoning (Ollama)
 - Exposure graph analysis and validation planning
@@ -340,6 +344,13 @@ make test
 - [x] Pagination bug fixes (correct total counts from DB)
 - [x] Dashboard optimized with DB aggregate queries
 - [x] Frontend inline edit/delete for assets and engagements
+- [x] Full 12-agent pipeline wired in RunEngine (3-phase: plan → per-step → post-run)
+- [x] HMAC-SHA256 receipt signing via `internal/receipt.Generator`
+- [x] PolicyEnforcer allowlist enforcement for Tier 1+ actions
+- [x] Coverage mapper, drift detection, and regression testing agents fully wired
+- [x] Pre-run coverage snapshots for drift comparison
+- [x] Connector resolution by category (siem, edr, itsm, notification)
+- [x] Simulated/fake fallback data removed from all agents
 - [ ] gVisor runner sandboxing
 - [ ] Additional connectors (Entra ID, Splunk, Elastic, CrowdStrike, Jira, Okta)
 - [ ] PDF report renderer
@@ -348,8 +359,7 @@ make test
 - [ ] Integration and end-to-end tests
 
 ### Phase 3 — Enterprise Expansion
-- [ ] Full coverage matrix (ATT&CK x Asset x Telemetry heatmap)
-- [ ] Regression and drift detection
+- [ ] Full coverage matrix visualization (ATT&CK x Asset x Telemetry heatmap in UI)
 - [ ] SSO/OIDC integration
 - [ ] HA and backup/restore
 - [ ] Vertical-specific validation playbooks

@@ -71,8 +71,10 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 
 ### Orchestrator (`:9090`)
 - **Technology**: Go + gRPC + NATS
-- **Role**: Manages agent lifecycle, run execution, policy enforcement
-- **Communicates with**: NATS (pub/sub for agent tasks), all services via gRPC
+- **Role**: Manages agent lifecycle, run execution (3-phase pipeline), policy enforcement, connector resolution, coverage snapshots
+- **Key components**: `AgentRegistry` (12 agents), `RunEngine` (full pipeline), `KillSwitch`, `Orchestrator` (NATS consumer)
+- **Dependencies**: DB pool, NATS, ConnectorService, CoverageRepo, all agent deps
+- **Communicates with**: NATS (pub/sub for run triggers + kill switch), PostgreSQL (runs, steps, findings, coverage), MinIO (evidence + receipts)
 - **Health**: `:10090/healthz`
 
 ### Runner (`:9091`)
@@ -113,35 +115,71 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 
 All services expose HTTP health endpoints at `/healthz` (liveness) and `/readyz` (readiness). The API gateway serves its health checks on its primary HTTP port (`:8080`). All other services run a dedicated health HTTP server on a port offset of +1000 from their gRPC port (e.g., Orchestrator gRPC on `:9090`, health on `:10090`). The `/healthz` endpoint returns HTTP 200 with `{"status":"healthy","service":"<name>"}`. The `/readyz` endpoint checks database and dependency connectivity and returns HTTP 200 or HTTP 503. These endpoints are used by Docker health checks, Kubernetes probes, and the monitoring stack.
 
+## Agent Squads
+
+AegisClaw uses 12 autonomous agents organized into 4 squads. All 12 agents are wired into the `RunEngine` and called in sequence during every validation run.
+
+| Squad | Agent | Role |
+|-------|-------|------|
+| **Governance** | PolicyEnforcer | Validates every step against tier policy, target allowlist, and exclusions. Blocks Tier 3. Gates Tier 2+ for approval. Requires non-empty allowlist for Tier 1+. |
+| **Governance** | ApprovalGate | Creates DB-backed approval records for Tier 2+ actions. Blocks execution until human decision. |
+| **Governance** | ReceiptAgent | Generates HMAC-SHA256 signed, tamper-evident run receipts with full step data, scope snapshot, and evidence manifest. Stores in MinIO. |
+| **Emulation** | Planner | Loads validation playbooks from YAML, filters by allowed tiers, generates ordered step list. |
+| **Emulation** | Executor | Executes playbook steps in-process (gVisor sandboxing planned), maps results. |
+| **Emulation** | EvidenceAgent | Captures execution artifacts as JSON and uploads to MinIO evidence vault. |
+| **Validation** | TelemetryVerifier | Queries SIEM/EDR connectors for expected telemetry matching the executed technique. |
+| **Validation** | DetectionEvaluator | Queries EDR for alerts, measures detection latency, generates detection gap findings. |
+| **Validation** | ResponseAutomator | Creates ITSM tickets for findings, sends notifications via Teams/Slack connectors. |
+| **Improvement** | CoverageMapper | Upserts ATT&CK coverage entries from validation results, computes coverage percentage. |
+| **Improvement** | DriftAgent | Compares post-run coverage against pre-run snapshot, generates drift findings for regressions. |
+| **Improvement** | RegressionAgent | Compares findings between the current run and previous runs, detects new regressions. |
+
+### Agent Dependency Injection
+
+Agents receive dependencies via `agentsdk.AgentDeps` (fields typed as `any` to avoid circular imports). Each agent type-asserts the fields it needs in its `Init()` method:
+
+- `Logger` — `*slog.Logger`
+- `DB` — `*pgxpool.Pool` (for agents that need direct DB access)
+- `EvidenceStore` — `*evidence.Store` (EvidenceAgent, ReceiptAgent)
+- `ConnectorSvc` — `*connector.Service` (validation agents)
+- `PlaybookLoader` / `PlaybookExecutor` — `*playbook.Loader` / `*playbook.Executor` (Planner, Executor)
+- `ReceiptHMACKey` — `[]byte` (ReceiptAgent HMAC-SHA256 signing key)
+- `ConnectorInstanceRepo` — `*repository.ConnectorInstanceRepo` (connector resolution)
+
 ## Data Flow: Validation Run
 
+The `RunEngine.ExecuteRun()` method implements the full 3-phase agent pipeline:
+
 ```
-1. Scheduler/User triggers engagement
-   └─► NATS: runs.created
+Phase 1 — Planning
+  1. Scheduler/User triggers engagement
+     └─► NATS: runs.trigger.<org_id>
+  2. Orchestrator receives event
+     └─► Creates Run record in PostgreSQL
+  3. Planner Agent plans validation campaign
+     └─► Loads playbooks, filters by tier, returns ordered step list
+     └─► Orchestrator stores step count in PostgreSQL
+  4. Pre-run coverage snapshot (for drift detection)
+     └─► Queries CoverageRepo for current technique coverage state
+  5. Connector resolution
+     └─► Maps engagement ConnectorIDs to category buckets (siem, edr, itsm, notification)
 
-2. Orchestrator receives event
-   └─► Creates Run record in PostgreSQL
-   └─► Dispatches to Planner Agent via NATS
+Phase 2 — Per-step execution (for each planned step)
+  a. PolicyEnforcer → validates against scope/tier/allowlist
+  b. ApprovalGate → blocks for human decision (Tier 2+ only)
+  c. Executor → runs the playbook step, captures results
+  d. EvidenceAgent → uploads execution artifacts to MinIO
+  e. TelemetryVerifier → queries SIEM/EDR for expected telemetry
+  f. DetectionEvaluator → checks alert generation + latency
+  g. Step results accumulated (findings, evidence, telemetry/detection flags)
 
-3. Planner Agent plans validation campaign
-   └─► Returns ordered list of tasks
-   └─► Orchestrator stores steps in PostgreSQL
-
-4. For each step:
-   a. Policy Enforcer validates against scope/tier/allowlist
-   b. If Tier 2+: Approval Gate blocks for human decision
-   c. Executor dispatches to Runner (sandboxed)
-   d. Runner executes and reports results
-   e. Evidence Agent stores artifacts in MinIO
-   f. Telemetry Verifier queries SIEM/EDR via Connector Service
-   g. Detection Evaluator checks alert generation
-   h. Receipt Agent records step outcome
-
-5. After all steps:
-   a. Response Automator creates ITSM tickets
-   b. Coverage Mapper updates ATT&CK matrix
-   c. Receipt Agent generates signed run receipt
-   d. Run marked complete in PostgreSQL
+Phase 3 — Post-run agents
+  a. ResponseAutomator → creates ITSM tickets + sends notifications for findings
+  b. CoverageMapper → upserts ATT&CK coverage matrix with validation results
+  c. DriftAgent → compares post-run vs pre-run coverage, generates drift findings
+  d. RegressionAgent → compares current vs previous run findings
+  e. ReceiptAgent → generates HMAC-SHA256 signed receipt with full step data
+  f. Run marked complete in PostgreSQL
 ```
 
 ## NATS JetStream Streams

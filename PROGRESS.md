@@ -1,6 +1,6 @@
 # AegisClaw — Implementation Progress
 
-> Last updated: 2026-03-13 (Session 6)
+> Last updated: 2026-03-13 (Session 7)
 
 ---
 
@@ -92,7 +92,7 @@
 ### Block 4 — Orchestrator & Run Engine
 
 - [x] `internal/orchestrator/orchestrator.go` — Subscribes to `runs.trigger.*` + `runs.killswitch`, dispatches to RunEngine in goroutines, cancels all on kill switch
-- [x] `internal/orchestrator/run_engine.go` — KillSwitch struct, RunEngine.ExecuteRun (plan → policy check per step → execute agent → create findings → receipt → update status)
+- [x] `internal/orchestrator/run_engine.go` — KillSwitch struct, RunEngine.ExecuteRun (3-phase pipeline: Planning → Per-step [PolicyEnforcer → ApprovalGate → Executor → EvidenceAgent → TelemetryVerifier → DetectionEvaluator] → Post-run [ResponseAutomator → CoverageMapper → DriftAgent → RegressionAgent → ReceiptAgent])
 - [x] `internal/orchestrator/agent_dispatch.go` — AgentRegistry mapping AgentType → Agent instances for all 12 agents (4 squads)
 - [x] `cmd/orchestrator/main.go` — Wired: DB, NATS, repos, agent registry, kill switch, run engine, orchestrator
 
@@ -279,6 +279,29 @@
 - [x] DriftDetector agent: Wired to `repository.CoverageRepo` — compares current vs baseline coverage, generates drift findings
 - [x] RegressionTester agent: Wired to `repository.RunRepo` + `repository.FindingRepo` — queries recent runs, compares findings between baseline and current
 
+### Agent Pipeline Audit & Fix (Session 7)
+
+- [x] Full 12-agent pipeline wired in `RunEngine.ExecuteRun()` — 3-phase architecture: Planning → Per-step execution → Post-run agents
+- [x] Phase 2 per-step loop: PolicyEnforcer → ApprovalGate (Tier 2+) → Executor → EvidenceAgent → TelemetryVerifier → DetectionEvaluator
+- [x] Phase 3 post-run: ResponseAutomator → CoverageMapper → DriftAgent → RegressionAgent → ReceiptAgent
+- [x] PolicyEnforcer: Added Tier 1+ target allowlist enforcement (blocks if allowlist empty)
+- [x] ReceiptAgent: Rewritten to use `internal/receipt.Generator` for HMAC-SHA256 signing with full step records, scope snapshot, and evidence manifest
+- [x] `AgentDeps`: Added `ReceiptHMACKey` ([]byte) and `ConnectorInstanceRepo` fields
+- [x] `internal/config/config.go`: Added `ReceiptHMACKey` to AuthConfig
+- [x] `internal/connector/service.go`: Added `ListByCategory()` method for connector resolution
+- [x] `RunEngine` struct: Added `connectorSvc` and `coverageRepo` fields; `NewRunEngine` constructor updated
+- [x] `resolveConnectors()`: Maps engagement ConnectorIDs by category (siem, edr, itsm, notification)
+- [x] `snapshotCoverage()`: Pre-run coverage snapshot for drift detection
+- [x] `stepAccum` struct: Accumulates per-step results (findings, evidence, telemetry/detection flags)
+- [x] `handleApproval()`: Proper ApprovalGate dispatch for Tier 2+ steps
+- [x] `buildStepRecords()`: Converts accumulated data to `receipt.StepRecord` for ReceiptAgent
+- [x] `createSingleFinding()`: Persists drift/regression findings (stepRecord optional)
+- [x] Simulated/fake fallback data removed from 5 agents: TelemetryVerifier, DetectionEvaluator, CoverageMapper, DriftAgent, RegressionAgent — now return honest zeros/empty when no connector or DB available
+- [x] EvidenceAgent: Removed stub evidence ID generation, uses real MinIO uploads only
+- [x] `cmd/orchestrator/main.go`: Wired `connectorSvc`, `coverageRepo`, `ReceiptHMACKey`, `ConnectorInstanceRepo`
+- [x] Build passes: `go build ./...` — PASS
+- [x] All tests pass: `go test ./...` — PASS
+
 ### Production Readiness Fixes (Session 6)
 
 - [x] Pagination bug fix: `RunRepo.scanAll()` and `FindingRepo.scanAll()` now return real DB total count instead of `len(results)`
@@ -413,9 +436,9 @@
 |-------|-------|-----------|-----------|
 | Phase 0 — Scaffold | 32 | 32 | 0 |
 | Phase 1 — MVP | 98 | 98 | 0 |
-| Phase 2 — Production | 132 | 100 | 32 |
-| **Total** | **262** | **230** | **32** |
+| Phase 2 — Production | 150 | 118 | 32 |
+| **Total** | **280** | **248** | **32** |
 
 **Phase 1 COMPLETE.** All 13 blocks done. End-to-end flow works: Create Asset → Create Engagement → Trigger Run → Findings → Report.
 
-**Phase 2 Progress:** All 12 agents wired. Full CLI. 13 playbooks (4 Tier 0 + 6 Tier 1 + 3 Tier 2) + playbook schema. 4 detail pages with inline edit. **161 test functions, 400 test cases, 0 failures across 16 packages.** Production hardening: 7 deployment blockers fixed, JWT validation + token blacklisting, auth middleware + rate limiting + account lockout, JSON injection fix, tenant isolation (30 handlers), Docker Compose hardened (resource limits, env var substitution, health checks on all 16 services), kill switch persistence, graceful shutdown timeouts, pagination bug fixes, dashboard aggregate queries, stub elimination (3 handlers), Prometheus metrics middleware, configurable trace sampling, API retry with backoff, `.env.example` with 50+ documented variables. All documentation verified against codebase.
+**Phase 2 Progress:** Full 12-agent pipeline audited and wired into 3-phase RunEngine (plan → per-step → post-run). HMAC-SHA256 receipt signing via `internal/receipt.Generator`. PolicyEnforcer allowlist enforcement for Tier 1+. Pre-run coverage snapshots for drift detection. Connector resolution by category. All simulated/fake fallback data removed. Full CLI. 13 playbooks (4 Tier 0 + 6 Tier 1 + 3 Tier 2) + playbook schema. 4 detail pages with inline edit. **161 test functions, 400 test cases, 0 failures across 16 packages.** Production hardening: 7 deployment blockers fixed, JWT validation + token blacklisting, auth middleware + rate limiting + account lockout, JSON injection fix, tenant isolation (30 handlers), Docker Compose hardened (resource limits, env var substitution, health checks on all 16 services), kill switch persistence, graceful shutdown timeouts, pagination bug fixes, dashboard aggregate queries, stub elimination (3 handlers), Prometheus metrics middleware, configurable trace sampling, API retry with backoff, `.env.example` with 50+ documented variables. All documentation verified against codebase.

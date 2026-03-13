@@ -197,6 +197,7 @@ auth:
   jwt_secret: dev-secret-change-in-production
   token_expiry: 15m
   refresh_expiry: 168h
+  receipt_hmac_key: dev-receipt-key-change-in-production
 
 policy:
   default_pack: default
@@ -213,7 +214,7 @@ observability:
 
 | Group           | Description                                                       |
 | --------------- | ----------------------------------------------------------------- |
-| `auth`          | JWT secret, token lifetimes                                       |
+| `auth`          | JWT secret, token lifetimes, receipt HMAC signing key              |
 | `database`      | PostgreSQL connection, SSL mode, pool size                        |
 | `nats`          | NATS URL, reconnect behavior                                     |
 | `minio`         | MinIO/S3 endpoint, credentials, bucket name                      |
@@ -369,19 +370,21 @@ docker exec aegisclaw-postgres bash /tmp/seed.sh
 
 Before exposing AegisClaw to a real environment, complete every item below.
 
-### 6.1 Set a Strong JWT Secret
+### 6.1 Set Strong Auth Secrets
 
-The JWT secret signs all authentication tokens. Never use the default.
+The JWT secret signs all authentication tokens. The receipt HMAC key signs immutable run receipts. Never use the defaults.
 
 ```bash
-# Generate a cryptographically random 256-bit secret
-openssl rand -hex 32
+# Generate cryptographically random 256-bit secrets
+openssl rand -hex 32  # For JWT secret
+openssl rand -hex 32  # For receipt HMAC key
 ```
 
-Set it in `.env`:
+Set them in `.env`:
 
 ```bash
-AEGISCLAW_AUTH_JWT_SECRET=<paste-output-here>
+AEGISCLAW_AUTH_JWT_SECRET=<paste-jwt-secret-here>
+AEGISCLAW_AUTH_RECEIPT_HMAC_KEY=<paste-receipt-key-here>
 ```
 
 ### 6.2 Change All Default Passwords
@@ -469,6 +472,7 @@ Examine and adjust `deploy.resources.limits` in `deploy/docker-compose.yml` base
 
 ```
 [ ] AEGISCLAW_AUTH_JWT_SECRET set to a random 256-bit value
+[ ] AEGISCLAW_AUTH_RECEIPT_HMAC_KEY set to a random 256-bit value
 [ ] POSTGRES_PASSWORD changed from default
 [ ] MINIO_ROOT_USER and MINIO_ROOT_PASSWORD changed from defaults
 [ ] GF_SECURITY_ADMIN_PASSWORD changed from default

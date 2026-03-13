@@ -62,9 +62,11 @@ type AgentDeps struct {
 	EvidenceStore    any // *evidence.Store
 	PolicyEngine     any // *policy.Engine
 	OllamaBridge     any // ollama client
-	ConnectorSvc     any // *connector.Service
-	PlaybookLoader   any // *playbook.Loader
-	PlaybookExecutor any // *playbook.Executor
+	ConnectorSvc          any // *connector.Service
+	PlaybookLoader        any // *playbook.Loader
+	PlaybookExecutor      any // *playbook.Executor
+	ReceiptHMACKey        any // []byte - HMAC key for receipt signing
+	ConnectorInstanceRepo any // *repository.ConnectorInstanceRepo
 }
 
 // Task is a unit of work dispatched to an agent.

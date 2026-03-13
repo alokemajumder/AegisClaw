@@ -2,21 +2,23 @@ package governance
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/alokemajumder/AegisClaw/internal/evidence"
+	"github.com/alokemajumder/AegisClaw/internal/receipt"
 	"github.com/alokemajumder/AegisClaw/pkg/agentsdk"
 )
 
 // ReceiptAgent generates tamper-evident run receipts and stores them in the evidence vault.
 type ReceiptAgent struct {
-	logger *slog.Logger
-	deps   agentsdk.AgentDeps
-	store  *evidence.Store
+	logger    *slog.Logger
+	deps      agentsdk.AgentDeps
+	store     *evidence.Store
+	generator *receipt.Generator
 }
 
 func NewReceiptAgent() *ReceiptAgent {
@@ -41,6 +43,13 @@ func (a *ReceiptAgent) Init(_ context.Context, deps agentsdk.AgentDeps) error {
 		a.logger.Warn("receipt agent has no evidence store, receipts will not be persisted")
 	}
 
+	if key, ok := deps.ReceiptHMACKey.([]byte); ok && len(key) > 0 {
+		a.generator = receipt.NewGenerator(key)
+		a.logger.Info("receipt agent using HMAC-SHA256 signing")
+	} else {
+		a.logger.Warn("receipt agent has no HMAC key, receipts will not be signed")
+	}
+
 	a.logger.Info("receipt agent initialized")
 	return nil
 }
@@ -51,33 +60,60 @@ func (a *ReceiptAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (*ag
 		"run_id", task.RunID,
 	)
 
-	receipt := map[string]any{
-		"run_id":       task.RunID.String(),
-		"org_id":       task.OrgID.String(),
-		"generated_at": time.Now().UTC(),
-		"version":      "1.0",
-	}
-
-	// Parse step results from inputs if available
+	// Parse inputs for step results and scope snapshot
 	var inputs map[string]any
 	if task.Inputs != nil {
 		_ = json.Unmarshal(task.Inputs, &inputs)
 	}
-	if steps, ok := inputs["step_results"]; ok {
-		receipt["steps"] = steps
+
+	// Build proper receipt struct
+	runReceipt := receipt.RunReceipt{
+		RunID:        task.RunID,
+		EngagementID: task.EngagementID,
+		OrgID:        task.OrgID,
+		StartedAt:    task.CreatedAt,
+		CompletedAt:  time.Now().UTC(),
+		Outcome:      "completed",
+		ToolVersions: map[string]string{"aegisclaw": "1.0"},
 	}
-	if evidenceIDs, ok := inputs["evidence_ids"]; ok {
-		receipt["evidence_ids"] = evidenceIDs
+
+	// Extract scope snapshot
+	if scopeRaw, ok := inputs["scope_snapshot"]; ok {
+		scopeBytes, _ := json.Marshal(scopeRaw)
+		_ = json.Unmarshal(scopeBytes, &runReceipt.ScopeSnapshot)
 	}
 
-	receiptData, _ := json.MarshalIndent(receipt, "", "  ")
+	// Extract step results
+	if stepsRaw, ok := inputs["step_results"]; ok {
+		stepsBytes, _ := json.Marshal(stepsRaw)
+		var steps []receipt.StepRecord
+		_ = json.Unmarshal(stepsBytes, &steps)
+		runReceipt.Steps = steps
+	}
 
-	// Compute content hash for tamper detection
-	hash := sha256.Sum256(receiptData)
-	receipt["content_hash"] = hex.EncodeToString(hash[:])
+	// Extract evidence manifest
+	if evidenceRaw, ok := inputs["evidence_ids"]; ok {
+		evidenceBytes, _ := json.Marshal(evidenceRaw)
+		var ids []string
+		_ = json.Unmarshal(evidenceBytes, &ids)
+		runReceipt.EvidenceManifest = ids
+	}
 
-	// Re-marshal with hash included
-	receiptData, _ = json.MarshalIndent(receipt, "", "  ")
+	if outcomeStr, ok := inputs["outcome"].(string); ok {
+		runReceipt.Outcome = outcomeStr
+	}
+
+	// Sign with HMAC if generator available
+	if a.generator != nil {
+		if err := a.generator.Generate(&runReceipt); err != nil {
+			a.logger.Error("failed to sign receipt", "error", err)
+		}
+	} else {
+		runReceipt.ReceiptID = "rcpt_" + uuid.New().String()[:12]
+		runReceipt.GeneratedAt = time.Now().UTC()
+	}
+
+	receiptData, _ := json.MarshalIndent(runReceipt, "", "  ")
 
 	// Store receipt in evidence vault
 	var evidenceIDs []string
@@ -85,16 +121,18 @@ func (a *ReceiptAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (*ag
 		if err := a.store.UploadReceipt(ctx, task.RunID.String(), receiptData); err != nil {
 			a.logger.Error("failed to upload receipt", "error", err)
 		} else {
-			a.logger.Info("receipt stored in evidence vault", "run_id", task.RunID)
+			a.logger.Info("receipt stored in evidence vault", "run_id", task.RunID, "receipt_id", runReceipt.ReceiptID)
 			evidenceIDs = append(evidenceIDs, "receipt_"+task.RunID.String()[:8])
 		}
 	}
 
 	outputs, _ := json.Marshal(map[string]any{
-		"receipt_generated": true,
-		"run_id":            task.RunID.String(),
-		"content_hash":      receipt["content_hash"],
-		"timestamp":         time.Now().UTC(),
+		"receipt_id":  runReceipt.ReceiptID,
+		"run_id":      task.RunID.String(),
+		"signature":   runReceipt.Signature,
+		"signed":      a.generator != nil,
+		"steps_count": len(runReceipt.Steps),
+		"timestamp":   runReceipt.GeneratedAt,
 	})
 
 	return &agentsdk.Result{

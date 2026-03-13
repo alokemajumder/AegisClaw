@@ -39,7 +39,8 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 ### Target Allowlists and Exclusions
 - Engagements define explicit target allowlists (asset UUIDs)
 - Exclusions take precedence over allowlists
-- **Hard enforcement**: the Policy Enforcer agent rejects any step targeting an asset not in the allowlist or in the exclusion list
+- **Hard enforcement**: the PolicyEnforcer agent rejects any step targeting an asset not in the allowlist or in the exclusion list
+- **Tier 1+ allowlist requirement**: Any action at Tier 1 or above is automatically blocked if the engagement has an empty target allowlist — this prevents accidental scope creep
 - No override mechanism — changing the allowlist requires updating the engagement configuration
 
 ### Rate Limiting
@@ -124,10 +125,13 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - Each entry records: actor (type + ID), action, resource, details, IP address, timestamp
 
 ### Run Receipts
-- Every completed run generates an immutable **run receipt**
-- Receipts include: scope snapshot, all steps with timestamps, evidence manifest, tool versions
-- Receipts are **HMAC-SHA256 signed** to ensure tamper evidence
-- Stored in MinIO with versioning enabled (immutable bucket policy recommended)
+- Every completed run generates an immutable **run receipt** via the ReceiptAgent
+- Receipts include: scope snapshot (target allowlist, exclusions, allowed tiers, rate limit, concurrency cap), all step records with start/completion times, evidence manifest, tool versions
+- Receipts are **HMAC-SHA256 signed** using `internal/receipt.Generator` to ensure tamper evidence
+- The HMAC key is configured via `auth.receipt_hmac_key` (environment variable `AEGISCLAW_AUTH_RECEIPT_HMAC_KEY`)
+- If no HMAC key is configured, receipts are generated unsigned with a warning — the system does not generate fake signatures
+- Stored in MinIO evidence vault with versioning enabled (immutable bucket policy recommended)
+- Receipt generation is the final step in the RunEngine pipeline (Phase 3, step e), ensuring all findings, coverage updates, and drift analysis are captured
 
 ## Data Security
 

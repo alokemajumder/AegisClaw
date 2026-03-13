@@ -78,10 +78,10 @@ func (a *EvidenceAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (*a
 			a.logger.Info("evidence artifact stored", "id", artifact.ID, "name", artifactName)
 		}
 	} else {
-		// Fallback: generate stub IDs
-		evidenceIDs = []string{
-			fmt.Sprintf("ev_stub_%s_%d", task.RunID.String()[:8], task.StepNumber),
-		}
+		a.logger.Warn("no evidence store configured, artifacts not persisted",
+			"task_id", task.ID,
+			"run_id", task.RunID,
+		)
 	}
 
 	outputs, _ := json.Marshal(map[string]any{

@@ -166,12 +166,12 @@ func (a *DetectionEvaluatorAgent) evaluateWithConnectors(ctx context.Context, ta
 
 func (a *DetectionEvaluatorAgent) simulatedEvaluate(task *agentsdk.Task) (*agentsdk.Result, error) {
 	outputs, _ := json.Marshal(map[string]any{
-		"alerts_found":     2,
-		"alerts_expected":  2,
-		"avg_latency_ms":   1250,
-		"suppression_gaps": 0,
-		"quality_score":    0.95,
-		"simulated":        true,
+		"alerts_found":            0,
+		"alerts_expected":         0,
+		"avg_latency_ms":          0,
+		"suppression_gaps":        0,
+		"quality_score":           0.0,
+		"no_connector_configured": true,
 	})
 
 	return &agentsdk.Result{

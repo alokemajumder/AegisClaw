@@ -132,6 +132,21 @@ func (s *Service) SendNotification(ctx context.Context, instanceID uuid.UUID, no
 	return notifier.SendNotification(ctx, notif)
 }
 
+// ListByCategory returns connector instances for the given org and category.
+func (s *Service) ListByCategory(ctx context.Context, orgID uuid.UUID, category string) ([]uuid.UUID, error) {
+	instances, err := s.repo.ListByCategory(ctx, orgID, category)
+	if err != nil {
+		return nil, err
+	}
+	var ids []uuid.UUID
+	for _, inst := range instances {
+		if inst.Enabled {
+			ids = append(ids, inst.ID)
+		}
+	}
+	return ids, nil
+}
+
 // HealthCheckAll runs health checks on all loaded connectors.
 func (s *Service) HealthCheckAll(ctx context.Context) {
 	s.mu.RLock()

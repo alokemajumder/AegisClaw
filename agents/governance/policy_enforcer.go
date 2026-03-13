@@ -60,6 +60,16 @@ func (a *PolicyEnforcerAgent) HandleTask(ctx context.Context, task *agentsdk.Tas
 		}
 	}
 
+	// Tier 1+ requires a non-empty target allowlist
+	if task.Tier >= 1 && task.PolicyContext != nil && len(task.PolicyContext.TargetAllowlist) == 0 {
+		return &agentsdk.Result{
+			TaskID:      task.ID,
+			Status:      agentsdk.StatusBlocked,
+			Error:       "tier 1+ actions require a non-empty target allowlist on the engagement",
+			CompletedAt: time.Now().UTC(),
+		}, nil
+	}
+
 	// Tier 3 is always blocked
 	if task.Tier >= 3 {
 		return &agentsdk.Result{
