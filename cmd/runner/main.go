@@ -79,6 +79,11 @@ func main() {
 	})
 	healthMux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if !nc.Conn.IsConnected() {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, `{"status":"not_ready","service":"runner","error":"nats: disconnected"}`)
+			return
+		}
 		fmt.Fprintf(w, `{"status":"ready","service":"runner"}`)
 	})
 	healthServer := &http.Server{

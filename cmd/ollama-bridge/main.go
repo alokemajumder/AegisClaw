@@ -120,7 +120,19 @@ func main() {
 	logger.Info("shutting down ollama-bridge")
 
 	healthServer.Shutdown(context.Background())
-	grpcServer.GracefulStop()
+
+	stopped := make(chan struct{})
+	go func() {
+		grpcServer.GracefulStop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		logger.Info("gRPC server stopped gracefully")
+	case <-time.After(10 * time.Second):
+		logger.Warn("gRPC graceful stop timed out, forcing stop")
+		grpcServer.Stop()
+	}
 
 	logger.Info("ollama-bridge stopped")
 }

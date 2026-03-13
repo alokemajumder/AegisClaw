@@ -4,7 +4,6 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, OctagonX, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -14,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { getMe, logout, toggleKillSwitch, getDashboardHealth } from "@/lib/api";
-import type { User, DashboardHealth } from "@/lib/types";
+import type { User } from "@/lib/types";
 
 export default function TopBar() {
   const router = useRouter();

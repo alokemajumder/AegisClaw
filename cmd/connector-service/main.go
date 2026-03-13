@@ -111,7 +111,19 @@ func main() {
 	go func() {
 		sig := <-sigCh
 		logger.Info("received shutdown signal", "signal", sig.String())
-		grpcServer.GracefulStop()
+
+		stopped := make(chan struct{})
+		go func() {
+			grpcServer.GracefulStop()
+			close(stopped)
+		}()
+		select {
+		case <-stopped:
+		case <-time.After(10 * time.Second):
+			logger.Warn("gRPC graceful stop timed out, forcing stop")
+			grpcServer.Stop()
+		}
+
 		healthServer.Shutdown(context.Background())
 		cancel()
 	}()
