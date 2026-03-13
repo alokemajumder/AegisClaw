@@ -96,9 +96,10 @@ type PolicyConfig struct {
 }
 
 type ObservabilityConfig struct {
-	TracingEndpoint string `mapstructure:"tracing_endpoint"`
-	MetricsPort     int    `mapstructure:"metrics_port"`
-	LogLevel        string `mapstructure:"log_level"`
+	TracingEndpoint string  `mapstructure:"tracing_endpoint"`
+	MetricsPort     int     `mapstructure:"metrics_port"`
+	LogLevel        string  `mapstructure:"log_level"`
+	SamplingRate    float64 `mapstructure:"sampling_rate"`
 }
 
 // Load reads configuration from file and environment variables.
@@ -137,6 +138,7 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("observability.tracing_endpoint", "http://localhost:4317")
 	v.SetDefault("observability.metrics_port", 9100)
 	v.SetDefault("observability.log_level", "info")
+	v.SetDefault("observability.sampling_rate", 1.0)
 
 	// Config file
 	if configPath != "" {

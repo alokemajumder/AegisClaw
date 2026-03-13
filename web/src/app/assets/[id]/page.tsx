@@ -50,7 +50,7 @@ export default function AssetDetailPage({ params }: { params: Promise<{ id: stri
     <div className="space-y-6">
       <div className="flex items-center gap-3">
         <Link href="/assets">
-          <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="sm" aria-label="Back to assets"><ArrowLeft className="h-4 w-4" /></Button>
         </Link>
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{asset.name}</h1>

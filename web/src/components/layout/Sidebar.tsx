@@ -110,6 +110,7 @@ export default function Sidebar() {
           size="sm"
           className="w-full mt-2 text-slate-500 hover:text-white"
           onClick={() => setCollapsed(!collapsed)}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
           {collapsed ? (
             <ChevronRight className="h-4 w-4" />

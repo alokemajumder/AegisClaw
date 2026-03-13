@@ -46,10 +46,18 @@ func Setup(ctx context.Context, serviceName string, cfg config.ObservabilityConf
 		return nil, fmt.Errorf("creating otel exporter: %w", err)
 	}
 
+	// Configurable sampling rate: 0 = never, 1.0 = always (default).
+	sampler := sdktrace.AlwaysSample()
+	if cfg.SamplingRate > 0 && cfg.SamplingRate < 1.0 {
+		sampler = sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.SamplingRate))
+	} else if cfg.SamplingRate == 0 {
+		sampler = sdktrace.NeverSample()
+	}
+
 	tp := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
-		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithSampler(sampler),
 	)
 
 	otel.SetTracerProvider(tp)

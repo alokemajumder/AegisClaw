@@ -71,7 +71,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/runs">
-            <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="sm" aria-label="Back to runs"><ArrowLeft className="h-4 w-4" /></Button>
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Run {run.id.slice(0, 8)}</h1>

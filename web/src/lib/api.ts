@@ -42,7 +42,29 @@ export function isAuthenticated(): boolean {
   return !!getToken();
 }
 
-// Base fetch with auth
+// Retry config
+const MAX_RETRIES = 3;
+const BASE_DELAY_MS = 200;
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+
+function isRetryable(status: number, method?: string): boolean {
+  // Only retry on safe methods (GET, HEAD) or transient server errors
+  if (status === 429) return true; // rate limited — always retry
+  if (!RETRYABLE_STATUSES.has(status)) return false;
+  const m = (method ?? "GET").toUpperCase();
+  return m === "GET" || m === "HEAD" || status >= 500;
+}
+
+function retryDelay(attempt: number): number {
+  // Exponential backoff with jitter: 200ms, 400ms, 800ms + random 0–100ms
+  return BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * 100;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Base fetch with auth and retry
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -52,28 +74,51 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
+  const fetchOpts: RequestInit = {
     ...options,
     headers: {
       ...headers,
       ...options?.headers,
     },
-  });
+  };
 
-  if (res.status === 401) {
-    clearToken();
-    if (typeof window !== "undefined") {
-      window.location.href = "/login";
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      await sleep(retryDelay(attempt - 1));
     }
-    throw new Error("Unauthorized");
+
+    let res: Response;
+    try {
+      res = await fetch(`${API_BASE}${path}`, fetchOpts);
+    } catch (err) {
+      // Network error — retry
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < MAX_RETRIES) continue;
+      throw lastError;
+    }
+
+    if (res.status === 401) {
+      clearToken();
+      if (typeof window !== "undefined") {
+        window.location.href = "/login";
+      }
+      throw new Error("Unauthorized");
+    }
+
+    if (!res.ok) {
+      if (attempt < MAX_RETRIES && isRetryable(res.status, options?.method)) {
+        continue;
+      }
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `API error: ${res.status}`);
+    }
+
+    return res.json();
   }
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `API error: ${res.status}`);
-  }
-
-  return res.json();
+  throw lastError ?? new Error("Request failed after retries");
 }
 
 // Auth
@@ -94,6 +139,11 @@ export async function getMe(): Promise<User> {
 }
 
 export async function logout() {
+  try {
+    await apiFetch("/api/v1/auth/logout", { method: "POST" });
+  } catch {
+    // Best-effort — clear local state regardless
+  }
   clearToken();
 }
 

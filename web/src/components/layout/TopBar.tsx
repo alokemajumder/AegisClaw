@@ -84,7 +84,7 @@ export default function TopBar() {
         </Button>
 
         {/* Notifications */}
-        <Button variant="ghost" size="sm" className="relative h-8 w-8 p-0">
+        <Button variant="ghost" size="sm" className="relative h-8 w-8 p-0" aria-label="View notifications">
           <Bell className="h-4 w-4" />
         </Button>
 

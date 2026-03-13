@@ -64,7 +64,7 @@ export default function FindingDetailPage({ params }: { params: Promise<{ id: st
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/findings">
-            <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4" /></Button>
+            <Button variant="ghost" size="sm" aria-label="Back to findings"><ArrowLeft className="h-4 w-4" /></Button>
           </Link>
           <div>
             <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
