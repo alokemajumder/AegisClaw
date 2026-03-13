@@ -63,7 +63,7 @@ make migrate
 go mod tidy
 cd web && npm install && cd ..
 
-# Run all tests (137 tests, 376 subtests across 14 packages)
+# Run all tests (161 test functions, 400 test cases across 16 packages)
 make test
 
 # Run linters
@@ -139,7 +139,7 @@ Adding new connectors is a great way to contribute. The platform currently ships
 Expanding the validation playbook library helps everyone. Currently 13 playbooks across Tier 0-2. See [Playbook Authoring Guide](docs/playbook-authoring.md).
 
 ### Testing
-We currently have 137 unit tests across 14 packages. Integration tests using `testcontainers-go` for real Postgres/NATS/MinIO are welcome.
+We currently have 161 test functions (400 test cases including subtests) across 16 packages. Integration tests using `testcontainers-go` for real Postgres/NATS/MinIO are welcome.
 
 ### Documentation
 Improving documentation is always welcome — tutorials, examples, and clarifications.

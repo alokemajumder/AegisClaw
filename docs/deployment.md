@@ -213,7 +213,7 @@ observability:
 
 | Group           | Description                                                       |
 | --------------- | ----------------------------------------------------------------- |
-| `auth`          | JWT secret, token lifetimes, SSO/OIDC settings                    |
+| `auth`          | JWT secret, token lifetimes                                       |
 | `database`      | PostgreSQL connection, SSL mode, pool size                        |
 | `nats`          | NATS URL, reconnect behavior                                     |
 | `minio`         | MinIO/S3 endpoint, credentials, bucket name                      |
@@ -248,7 +248,7 @@ The file `deploy/docker-compose.yml` defines all services, infrastructure, and n
 | -------------------- | --------- | ----------- | --------------------------------------- | ----------------- |
 | `api-gateway`        | --        | 8080        | REST API gateway (Chi router)           | 1 CPU, 512 MB     |
 | `orchestrator`       | 9090      | 10090       | Engagement & agent squad orchestration  | 1 CPU, 512 MB     |
-| `runner`             | 9091      | 10091       | Sandboxed validation execution          | 1 CPU, 512 MB     |
+| `runner`             | 9091      | 10091       | Validation step execution               | 1 CPU, 512 MB     |
 | `evidence-service`   | 9092      | 10092       | Evidence collection & MinIO storage     | 0.5 CPU, 256 MB   |
 | `connector-service`  | 9093      | 10093       | External tool integrations              | 0.5 CPU, 256 MB   |
 | `reporting-service`  | 9094      | 10094       | Report generation                       | 0.5 CPU, 256 MB   |
@@ -548,7 +548,7 @@ AegisClaw ships a CLI tool called `aegiscli` for scripted operations and adminis
 
 ### Installation
 
-From the repository root (requires Go 1.23+):
+From the repository root (requires Go 1.25+):
 
 ```bash
 go install ./cmd/aegiscli

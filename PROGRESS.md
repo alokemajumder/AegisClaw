@@ -1,6 +1,6 @@
 # AegisClaw — Implementation Progress
 
-> Last updated: 2026-03-04 (Session 5)
+> Last updated: 2026-03-13 (Session 6)
 
 ---
 
@@ -18,7 +18,7 @@
 - [x] `cmd/aegisclaw/` CLI skeleton
 - [x] Next.js 15 frontend (`web/`) with Tailwind + shadcn/ui
 - [x] Frontend page shells: Dashboard, Assets, Engagements, Runs, Findings, Connectors, Approvals, Reports, Settings
-- [x] PostgreSQL schema — migration `000001_initial_schema` (16 tables)
+- [x] PostgreSQL schema — migration `000001_initial_schema` (13 tables) + `000002_add_reports` (1 table) = 14 tables total
 - [x] NATS JetStream client + 5 stream definitions (RUNS, AGENTS, EVIDENCE, CONNECTORS, APPROVALS)
 - [x] Agent SDK (`pkg/agentsdk/`) — Agent interface, AgentDeps, Task/Result, 12 AgentType constants
 - [x] 12 agent stubs: PolicyEnforcer, ApprovalGate, ReceiptAgent, Planner, Executor, EvidenceAgent, TelemetryVerifier, DetectionEvaluator, ResponseAutomator, CoverageMapper, DriftDetector, RegressionTester
@@ -234,7 +234,7 @@
 - [x] `docs/architecture.md` — Updated: health check ports table, kill switch flow diagram, reports table in DB schema
 - [x] `docs/security-model.md` — Updated: account lockout, auth rate limiting, tenant isolation, kill switch persistence, frontend auth middleware
 - [x] `README.md` — Updated: Go 1.25+, Docker 24+, .env setup steps, connectors table (5 available vs planned), roadmap (Phase 0-1 complete, Phase 2 in progress), health ports, deployment guide link
-- [x] `CONTRIBUTING.md` — Updated: Go 1.25+, .env.example instructions, health check docs, test count (137 tests), service run commands
+- [x] `CONTRIBUTING.md` — Updated: Go 1.25+, .env.example instructions, health check docs, test counts, service run commands
 - [x] `.env.example` — Created: 50+ documented environment variables across 13 sections
 
 ### Frontend Fixes (Session 3)
@@ -278,6 +278,32 @@
 - [x] CoverageMapper agent: Wired to `repository.CoverageRepo` — upserts coverage entries, queries gaps, computes coverage percentage
 - [x] DriftDetector agent: Wired to `repository.CoverageRepo` — compares current vs baseline coverage, generates drift findings
 - [x] RegressionTester agent: Wired to `repository.RunRepo` + `repository.FindingRepo` — queries recent runs, compares findings between baseline and current
+
+### Production Readiness Fixes (Session 6)
+
+- [x] Pagination bug fix: `RunRepo.scanAll()` and `FindingRepo.scanAll()` now return real DB total count instead of `len(results)`
+- [x] Dashboard performance: Replaced N+1 in-memory counting with efficient DB aggregate queries using PostgreSQL `FILTER` clauses
+- [x] Added `CountByOrgID` aggregate methods to RunRepo, FindingRepo, EngagementRepo
+- [x] Stub elimination: `TestConnector` handler — now calls real `ConnectorSvc.GetConnector()` then `conn.HealthCheck()`
+- [x] Stub elimination: `TriggerHealthCheck` handler — real connector health check via ConnectorSvc
+- [x] Stub elimination: `DownloadReport` handler — serves actual files from MinIO with correct Content-Type/Content-Disposition
+- [x] `GenerateReport` handler — wired to `ReportSvc.Generate()` (gather → render → upload to MinIO)
+- [x] Handler struct: Added `ConnectorSvc`, `ReportSvc`, `EvidenceStore` fields
+- [x] Graceful shutdown: 10-second timeout with `select` + `time.After` on evidence-service, connector-service, reporting-service, ollama-bridge
+- [x] Runner `/readyz`: Checks NATS connectivity (`nc.Conn.IsConnected()`)
+- [x] NATS Docker health check: Fixed from broken `nats-server --signal ldm` to `wget --spider -q http://localhost:8222/healthz`
+- [x] API retry logic: `apiFetch` in `web/src/lib/api.ts` — exponential backoff (3 retries, 200ms base + jitter), only on transient errors
+- [x] Token blacklisting: `internal/auth/auth.go` — SHA256-hashed blacklist with periodic cleanup goroutine
+- [x] `logout()` now calls server-side token revocation before clearing local state
+- [x] Prometheus metrics middleware: `internal/metrics/metrics.go` — HTTP counters, histograms, in-flight gauges, UUID path normalization
+- [x] Configurable trace sampling: `observability.sampling_rate` config (0=never, 0-1=ratio, 1=always)
+- [x] Evidence store: Added `text/markdown` to allowed content types for report uploads
+- [x] Settings page: Rewritten to show read-only config with env var documentation (removed fake save handlers)
+- [x] Asset detail page: Added inline edit form (name, hostname, environment, criticality, owner)
+- [x] Engagement detail page: Added inline edit + delete with confirmation dialog
+- [x] Frontend: Added `updateEngagement()`, `deleteEngagement()` API functions
+- [x] Accessibility: `aria-label` attributes on back buttons, sidebar toggle, notification bell
+- [x] Documentation accuracy audit: README, architecture.md, security-model.md, deployment.md, CONTRIBUTING.md — corrected table/endpoint/playbook counts, removed claims about unimplemented features (PDF export, gVisor, OpenAPI spec, SSO)
 
 ### Runner Sandboxing
 
@@ -387,9 +413,9 @@
 |-------|-------|-----------|-----------|
 | Phase 0 — Scaffold | 32 | 32 | 0 |
 | Phase 1 — MVP | 98 | 98 | 0 |
-| Phase 2 — Production | 110 | 78 | 32 |
-| **Total** | **240** | **208** | **32** |
+| Phase 2 — Production | 132 | 100 | 32 |
+| **Total** | **262** | **230** | **32** |
 
 **Phase 1 COMPLETE.** All 13 blocks done. End-to-end flow works: Create Asset → Create Engagement → Trigger Run → Findings → Report.
 
-**Phase 2 Progress:** All 12 agents wired. Full CLI (20 commands). 13 playbooks. 4 detail pages. **137 unit tests, 376 subtests, 0 failures.** Production hardening: 7 deployment blockers fixed, JWT validation, auth middleware + rate limiting + account lockout, JSON injection fix, tenant isolation (30 handlers), Docker Compose hardened (resource limits, env var substitution, health checks on all 9 services), kill switch persistence, `.env.example` with 50+ documented variables.
+**Phase 2 Progress:** All 12 agents wired. Full CLI. 13 playbooks (4 Tier 0 + 6 Tier 1 + 3 Tier 2) + playbook schema. 4 detail pages with inline edit. **161 test functions, 400 test cases, 0 failures across 16 packages.** Production hardening: 7 deployment blockers fixed, JWT validation + token blacklisting, auth middleware + rate limiting + account lockout, JSON injection fix, tenant isolation (30 handlers), Docker Compose hardened (resource limits, env var substitution, health checks on all 16 services), kill switch persistence, graceful shutdown timeouts, pagination bug fixes, dashboard aggregate queries, stub elimination (3 handlers), Prometheus metrics middleware, configurable trace sampling, API retry with backoff, `.env.example` with 50+ documented variables. All documentation verified against codebase.

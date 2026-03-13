@@ -65,19 +65,19 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 
 ### API Gateway (`:8080`)
 - **Technology**: Go + Chi router
-- **Role**: REST API, authentication (JWT + SSO), RBAC, rate limiting, CORS
+- **Role**: REST API (59 endpoints), authentication (JWT), RBAC (4 roles), rate limiting, CORS
 - **Communicates with**: All internal services via gRPC
 - **Health**: `:8080/healthz`
 
 ### Orchestrator (`:9090`)
 - **Technology**: Go + gRPC + NATS
-- **Role**: OpenClaw engine — manages agent lifecycle, run execution, policy enforcement
+- **Role**: Manages agent lifecycle, run execution, policy enforcement
 - **Communicates with**: NATS (pub/sub for agent tasks), all services via gRPC
 - **Health**: `:10090/healthz`
 
 ### Runner (`:9091`)
-- **Technology**: Go + gRPC + gVisor
-- **Role**: Sandboxed execution of validation steps with cleanup verification
+- **Technology**: Go + gRPC
+- **Role**: Execution of validation steps with cleanup verification (gVisor sandboxing planned for Phase 2, currently runs in-process)
 - **Communicates with**: Orchestrator (task receipt), Evidence Service (artifact storage)
 - **Health**: `:10091/healthz`
 
@@ -95,7 +95,7 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 
 ### Reporting Service (`:9094`)
 - **Technology**: Go + gRPC
-- **Role**: Report generation in PDF, Markdown, and JSON formats
+- **Role**: Report generation in Markdown and JSON formats (PDF renderer planned)
 - **Health**: `:10094/healthz`
 
 ### Ollama Bridge (`:9095`)
@@ -111,7 +111,7 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 
 ### Health Checks
 
-All services expose an HTTP health endpoint at `/healthz`. The API gateway serves its health check on its primary HTTP port (`:8080/healthz`). All other services run a dedicated health HTTP server on a port offset of +1000 from their gRPC port (e.g., Orchestrator gRPC on `:9090`, health on `:10090`). The health endpoint returns HTTP 200 with `{"status": "ok"}` when the service is ready, or HTTP 503 when unhealthy. These endpoints are used by Docker health checks, Kubernetes probes, and the monitoring stack.
+All services expose HTTP health endpoints at `/healthz` (liveness) and `/readyz` (readiness). The API gateway serves its health checks on its primary HTTP port (`:8080`). All other services run a dedicated health HTTP server on a port offset of +1000 from their gRPC port (e.g., Orchestrator gRPC on `:9090`, health on `:10090`). The `/healthz` endpoint returns HTTP 200 with `{"status":"healthy","service":"<name>"}`. The `/readyz` endpoint checks database and dependency connectivity and returns HTTP 200 or HTTP 503. These endpoints are used by Docker health checks, Kubernetes probes, and the monitoring stack.
 
 ## Data Flow: Validation Run
 

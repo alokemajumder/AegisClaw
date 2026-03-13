@@ -31,7 +31,7 @@ The platform is **agents-first**: autonomous agent squads (Red + Blue + Purple l
                           |
                           v
     ┌─────────────────────────────────────────────┐
-    │             OpenClaw Orchestrator            │
+    │           AegisClaw Orchestrator              │
     │      (Policy enforcement + Run lifecycle)    │
     └───────────────┬───────────────┬──────────────┘
                     |               |
@@ -79,7 +79,7 @@ The platform is **agents-first**: autonomous agent squads (Red + Blue + Purple l
 - Target allowlists + exclusions (hard enforced)
 - Time windows, blackout periods, rate limits, concurrency caps
 - Circuit breakers and global kill switch
-- RBAC with SSO (OIDC) integration
+- RBAC with 4 roles (admin, operator, approver, viewer)
 
 ### Local LLM Reasoning (Ollama)
 - Exposure graph analysis and validation planning
@@ -102,19 +102,21 @@ The platform is **agents-first**: autonomous agent squads (Red + Blue + Purple l
 | **ITSM** | ServiceNow | Available |
 | **Notifications** | Microsoft Teams (Webhook) | Available |
 | **Notifications** | Slack (Webhook) | Available |
-| **SIEM** | Splunk, Elastic Security, IBM QRadar | Planned |
-| **EDR/XDR** | CrowdStrike Falcon, SentinelOne | Planned |
+| **SIEM** | Splunk | Planned |
+| **SIEM** | Elastic Security | Planned |
+| **EDR/XDR** | CrowdStrike Falcon | Planned |
 | **ITSM** | Jira Service Management | Planned |
-| **Identity** | Microsoft Entra ID, Okta | Planned |
+| **Identity** | Microsoft Entra ID | Planned |
+| **Identity** | Okta | Planned |
 
-Additional connectors can be built using the [Connector SDK](docs/connector-development.md).
+The connector registry pre-seeds 10 connector types (sentinel, defender, entraid, servicenow, teams, slack, splunk, elastic, crowdstrike, jira, okta). Additional connectors can be built using the [Connector SDK](docs/connector-development.md).
 
 ### CISO-Ready Reporting
 - **Executive report**: Posture overview, top gaps, drift trends, SLA adherence
 - **Technical report**: Evidence-linked findings, remediation steps, retest outcomes
 - **Coverage report**: Blind spots and detection gaps
 - **Delta report**: New vs fixed vs unchanged since last run
-- Export: PDF, Markdown, JSON
+- Export: Markdown, JSON (PDF renderer planned)
 
 ## Quick Start
 
@@ -141,7 +143,7 @@ docker compose -f deploy/docker-compose.yml up -d
 # Run database migrations
 make migrate
 
-# Seed initial admin user (admin@aegisclaw.local / changeme)
+# Seed initial admin user (admin@aegisclaw.local / admin)
 make seed
 
 # Access the platform
@@ -196,19 +198,19 @@ See the [Deployment Guide](docs/deployment.md) for production deployment, Kubern
 | Message Broker | NATS + JetStream |
 | Blob Storage | MinIO (S3-compatible) |
 | LLM | Ollama (local inference) |
-| Runner Sandbox | gVisor |
+| Runner Sandbox | In-process (gVisor planned for Phase 2) |
 | Observability | OpenTelemetry, Prometheus, Grafana, Jaeger |
 
 ### Services
 
 | Service | Port | Health Port | Description |
 |---------|------|-------------|-------------|
-| `api-gateway` | 8080 | 8080 | REST API, auth, RBAC, SSO |
+| `api-gateway` | 8080 | 8080 | REST API (59 endpoints), JWT auth, RBAC |
 | `orchestrator` | 9090 | 10090 | Agent lifecycle, run execution, policy enforcement |
 | `runner` | 9091 | 10091 | Sandboxed validation step execution |
 | `evidence-service` | 9092 | 10092 | Evidence vault (MinIO), receipt storage |
 | `connector-service` | 9093 | 10093 | Connector lifecycle, execution, health checks |
-| `reporting-service` | 9094 | 10094 | Report generation (PDF/MD/JSON) |
+| `reporting-service` | 9094 | 10094 | Report generation (Markdown/JSON) |
 | `ollama-bridge` | 9095 | 10095 | LLM proxy with prompt governance |
 | `scheduler` | 9096 | 10096 | Cron scheduling, blackout enforcement |
 | `web` | 3000 | — | Control Plane UI |
@@ -252,7 +254,6 @@ AegisClaw/
 | [Deployment Guide](docs/deployment.md) | Docker Compose, production hardening, configuration |
 | [Connector Development](docs/connector-development.md) | How to build custom connectors |
 | [Playbook Authoring](docs/playbook-authoring.md) | How to create validation playbooks |
-| [API Reference](docs/api/openapi.yaml) | OpenAPI 3.1 specification |
 
 ## Deployment Models
 
@@ -309,10 +310,10 @@ make test
 
 ### Phase 0 — Foundations (Complete)
 - [x] Core platform architecture
-- [x] Database schema and migrations (16 tables)
-- [x] Service skeletons with gRPC/REST (8 services)
+- [x] Database schema and migrations (14 tables across 2 migrations)
+- [x] Service skeletons with gRPC/REST (8 Go services + 1 CLI)
 - [x] Agent SDK and Connector SDK
-- [x] Docker Compose development stack
+- [x] Docker Compose development stack (16 services total)
 - [x] Frontend shell with navigation
 
 ### Phase 1 — MVP (Complete)
@@ -322,18 +323,26 @@ make test
 - [x] Ollama Bridge with prompt governance and model allowlisting
 - [x] Executive, technical, and coverage reports (Markdown + JSON)
 - [x] 12 agents wired across 4 squads
-- [x] 13 validation playbooks (Tier 0-2)
-- [x] CLI tool with 20 commands
-- [x] Full frontend integration (15 pages, live data)
+- [x] 13 validation playbooks (4 Tier 0, 6 Tier 1, 3 Tier 2) + playbook schema
+- [x] CLI tool with asset, engagement, run, finding, and report commands
+- [x] Full frontend integration (15 pages, live API data)
 
 ### Phase 2 — Production Hardening (In Progress)
-- [x] JWT validation, auth rate limiting, account lockout
+- [x] JWT validation, auth rate limiting, account lockout (5 attempts → 15 min lockout)
+- [x] Token blacklisting with SHA256 hashing and periodic cleanup
 - [x] Tenant isolation (org_id enforcement on all handlers)
-- [x] Docker Compose hardening (resource limits, env vars, health checks)
-- [x] Health check endpoints on all services
+- [x] Docker Compose hardening (resource limits, log rotation, health checks)
+- [x] Health check endpoints on all services (/healthz + /readyz)
 - [x] Kill switch persistence across restarts
+- [x] Graceful shutdown with timeouts on all gRPC services
+- [x] Prometheus metrics middleware with path normalization
+- [x] API retry logic with exponential backoff and jitter
+- [x] Pagination bug fixes (correct total counts from DB)
+- [x] Dashboard optimized with DB aggregate queries
+- [x] Frontend inline edit/delete for assets and engagements
 - [ ] gVisor runner sandboxing
-- [ ] Additional connectors (Entra ID, Splunk, Elastic, CrowdStrike, Jira)
+- [ ] Additional connectors (Entra ID, Splunk, Elastic, CrowdStrike, Jira, Okta)
+- [ ] PDF report renderer
 - [ ] WebSocket/SSE real-time updates
 - [ ] Kubernetes Helm chart
 - [ ] Integration and end-to-end tests

@@ -80,7 +80,7 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - **JWT tokens** with short expiry (default: 15 minutes) + refresh tokens (default: 7 days)
 - **JWT secret validation**: API gateway refuses to start with an empty JWT secret and warns on default values
 - **SSO/OIDC** integration for enterprise identity providers (Entra ID, Okta, etc.) — planned
-- Local login available for development; SSO recommended for production
+- Local login with email/password (bcrypt hashed)
 
 ### Account Lockout
 - **5 failed login attempts** trigger a **15-minute lockout** per email address
@@ -94,7 +94,7 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 
 ### Frontend Auth Middleware
 - Next.js middleware intercepts all requests and redirects unauthenticated users to `/login`
-- Auth token is stored as both a cookie (for SSR middleware checks) and localStorage (for API calls)
+- Auth token is stored as both a cookie (for Next.js middleware checks) and localStorage (for API calls)
 - Automatic redirect on 401 responses from the API
 
 ### RBAC Roles
@@ -154,9 +154,9 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - Credentials validated at connection test time, never logged
 
 ### Network Isolation
-- Runner containers use gVisor with deny-by-default egress
-- Egress controlled via allowlisted destinations only
-- Per-connector network scoping possible via runner segmentation
+- Runner currently executes in-process (gVisor sandboxing with deny-by-default egress planned for Phase 2)
+- Egress controlled via allowlisted destinations only (planned)
+- Per-connector network scoping possible via runner segmentation (planned)
 
 ## Threat Model
 
