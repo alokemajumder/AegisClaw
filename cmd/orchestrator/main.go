@@ -132,7 +132,8 @@ func main() {
 	consumer := aegisnats.NewConsumer(nc.JetStream, logger)
 
 	// Orchestrator
-	orch := orchestrator.NewOrchestrator(engine, consumer, runRepo, engRepo, killSwitch, logger)
+	approvalRepo := repository.NewApprovalRepo(pool)
+	orch := orchestrator.NewOrchestrator(engine, consumer, runRepo, engRepo, approvalRepo, killSwitch, logger)
 	if err := orch.Start(ctx); err != nil {
 		logger.Error("failed to start orchestrator", "error", err)
 		os.Exit(1)

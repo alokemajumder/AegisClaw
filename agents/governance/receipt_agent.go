@@ -104,13 +104,29 @@ func (a *ReceiptAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (*ag
 	}
 
 	// Sign with HMAC if generator available
+	var findings []agentsdk.FindingOutput
 	if a.generator != nil {
 		if err := a.generator.Generate(&runReceipt); err != nil {
 			a.logger.Error("failed to sign receipt", "error", err)
+			findings = append(findings, agentsdk.FindingOutput{
+				Title:       "Receipt signing failed",
+				Description: "HMAC-SHA256 receipt signing failed — receipt is not tamper-evident",
+				Severity:    "high",
+				Confidence:  "confirmed",
+				Remediation: "Check the HMAC key configuration and retry the run",
+			})
 		}
 	} else {
 		runReceipt.ReceiptID = "rcpt_" + uuid.New().String()[:12]
 		runReceipt.GeneratedAt = time.Now().UTC()
+		a.logger.Warn("receipt generated WITHOUT signature — not tamper-evident", "run_id", task.RunID)
+		findings = append(findings, agentsdk.FindingOutput{
+			Title:       "Unsigned receipt generated",
+			Description: "No HMAC key configured — receipt is not signed and cannot be verified for tampering",
+			Severity:    "medium",
+			Confidence:  "confirmed",
+			Remediation: "Configure AEGISCLAW_AUTH_RECEIPT_HMAC_KEY to enable receipt signing",
+		})
 	}
 
 	receiptData, _ := json.MarshalIndent(runReceipt, "", "  ")
@@ -140,6 +156,7 @@ func (a *ReceiptAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (*ag
 		Status:      agentsdk.StatusCompleted,
 		Outputs:     outputs,
 		EvidenceIDs: evidenceIDs,
+		Findings:    findings,
 		CompletedAt: time.Now().UTC(),
 	}, nil
 }

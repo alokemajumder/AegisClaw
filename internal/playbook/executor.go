@@ -323,7 +323,9 @@ func (e *Executor) executeEncodedCommand(ctx context.Context, step *PlaybookStep
 		return
 	}
 
-	baseName := parts[0]
+	// SECURITY: Extract only the base name from the command path to prevent
+	// PATH traversal bypass (e.g., /usr/bin/rm would resolve to "rm").
+	baseName := filepath.Base(parts[0])
 	if !safeCommands[baseName] {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("command %q not in allowlist [whoami, hostname, ipconfig, systeminfo, dir, ls, uname, id, pwd]", baseName)
@@ -341,8 +343,25 @@ func (e *Executor) executeEncodedCommand(ctx context.Context, step *PlaybookStep
 	cmdCtx, cmdCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cmdCancel()
 
+	// SECURITY: Use the validated baseName, not the user-supplied path,
+	// to prevent PATH traversal (e.g., /tmp/evil/ls).
+	// Also reject any arguments beyond the command itself to prevent flag injection.
+	if len(parts) > 1 {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("command arguments not allowed for safety: %q", cmdStr)
+		outputs := map[string]any{
+			"action":  "execute_encoded_command",
+			"blocked": true,
+			"command": baseName,
+			"reason":  "arguments not permitted in allowlisted commands",
+		}
+		data, _ := json.Marshal(outputs)
+		result.Outputs = data
+		return
+	}
+
 	startTime := time.Now()
-	cmd := exec.CommandContext(cmdCtx, parts[0], parts[1:]...)
+	cmd := exec.CommandContext(cmdCtx, baseName)
 	stdout, err := cmd.CombinedOutput()
 	elapsed := time.Since(startTime)
 
@@ -454,6 +473,10 @@ func (e *Executor) executeVerifyDetection(ctx context.Context, step *PlaybookSte
 	result.Outputs = data
 }
 
+// aegisclawTempPrefix is the required prefix for marker file paths to prevent
+// arbitrary filesystem deletion via the verify_cleanup action.
+const aegisclawTempPrefix = "aegisclaw-marker-"
+
 // executeVerifyCleanup verifies that a marker file was cleaned up (by EDR or self).
 func (e *Executor) executeVerifyCleanup(_ context.Context, step *PlaybookStep, result *StepResult) {
 	markerPath, _ := step.Inputs["marker_path"].(string)
@@ -463,7 +486,26 @@ func (e *Executor) executeVerifyCleanup(_ context.Context, step *PlaybookStep, r
 		return
 	}
 
-	_, err := os.Stat(markerPath)
+	// SECURITY: Validate the marker path is within our temp directory to prevent
+	// arbitrary filesystem deletion. The path must be under os.TempDir() and the
+	// parent directory must match our naming convention.
+	absPath, err := filepath.Abs(markerPath)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("invalid marker_path: %v", err)
+		return
+	}
+	parentDir := filepath.Dir(absPath)
+	parentBase := filepath.Base(parentDir)
+	tempDir := os.TempDir()
+	if !strings.HasPrefix(parentDir, tempDir) || !strings.HasPrefix(parentBase, aegisclawTempPrefix) {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("marker_path %q is not in an aegisclaw temp directory — refusing cleanup to prevent arbitrary deletion", markerPath)
+		e.logger.Error("verify_cleanup blocked: path outside aegisclaw temp dir", "path", markerPath, "parent", parentDir)
+		return
+	}
+
+	_, err = os.Stat(absPath)
 	if os.IsNotExist(err) {
 		// File is gone — EDR or another process removed it
 		result.Status = "completed"
@@ -499,8 +541,7 @@ func (e *Executor) executeVerifyCleanup(_ context.Context, step *PlaybookStep, r
 		return
 	}
 
-	// File still exists (err == nil) — self-cleanup
-	parentDir := filepath.Dir(markerPath)
+	// File still exists (err == nil) — self-cleanup (only the validated parent dir)
 	removeErr := os.RemoveAll(parentDir)
 	selfCleaned := removeErr == nil
 

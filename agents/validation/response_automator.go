@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -74,6 +76,12 @@ func (a *ResponseAutomatorAgent) HandleTask(ctx context.Context, task *agentsdk.
 							desc, _ := f["description"].(string)
 							severity, _ := f["severity"].(string)
 
+							// Sanitize inputs to prevent injection into ITSM systems.
+							// Truncate to prevent oversized payloads and strip control chars.
+							title = sanitizeTicketField(title, 200)
+							desc = sanitizeTicketField(desc, 4000)
+							severity = sanitizeTicketField(severity, 20)
+
 							ticket := connectorsdk.TicketRequest{
 								Title:       fmt.Sprintf("[AegisClaw] %s", title),
 								Description: desc,
@@ -133,4 +141,23 @@ func (a *ResponseAutomatorAgent) HandleTask(ctx context.Context, task *agentsdk.
 func (a *ResponseAutomatorAgent) Shutdown(_ context.Context) error {
 	a.logger.Info("response automator agent shutting down")
 	return nil
+}
+
+// sanitizeTicketField strips control characters and truncates to maxLen to
+// prevent injection attacks against ITSM ticket systems.
+func sanitizeTicketField(s string, maxLen int) string {
+	// Remove control characters (except newline/tab for descriptions)
+	cleaned := strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' {
+			return r
+		}
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+	if len(cleaned) > maxLen {
+		cleaned = cleaned[:maxLen]
+	}
+	return cleaned
 }

@@ -246,10 +246,23 @@ func (e *RunEngine) executeStep(
 		e.logger.Error("updating step to running", "error", err, "step_id", stepRecord.ID)
 	}
 
-	// ─ 2a. PolicyEnforcer ─
-	enforcer, _ := e.agents.Get(agentsdk.AgentPolicyEnforcer)
-	if enforcer != nil {
-		policyResult, _ := enforcer.HandleTask(ctx, &agentsdk.Task{
+	// ─ 2a. PolicyEnforcer (mandatory — fail-closed) ─
+	enforcer, err := e.agents.Get(agentsdk.AgentPolicyEnforcer)
+	if err != nil {
+		errMsg := "policy enforcer agent not found — cannot proceed without policy evaluation"
+		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg); updateErr != nil {
+			e.logger.Error("updating step to blocked (no policy enforcer)", "error", updateErr, "step_id", stepRecord.ID)
+		}
+		if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+			e.logger.Error("incrementing failed steps (no policy enforcer)", "error", incErr, "run_id", run.ID)
+		}
+		accum.Status = "blocked"
+		accum.Error = errMsg
+		accum.CompletedAt = time.Now().UTC()
+		return accum
+	}
+	{
+		policyResult, policyErr := enforcer.HandleTask(ctx, &agentsdk.Task{
 			ID:            uuid.New().String(),
 			RunID:         run.ID,
 			EngagementID:  eng.ID,
@@ -260,26 +273,42 @@ func (e *RunEngine) executeStep(
 			PolicyContext: policyCtx,
 			CreatedAt:     time.Now().UTC(),
 		})
-		if policyResult != nil {
-			if policyResult.Status == agentsdk.StatusBlocked {
-				errMsg := "blocked by policy: " + policyResult.Error
-				if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg); updateErr != nil {
-					e.logger.Error("updating step to blocked by policy", "error", updateErr, "step_id", stepRecord.ID)
-				}
-				if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
-					e.logger.Error("incrementing failed steps after policy block", "error", incErr, "run_id", run.ID)
-				}
-				accum.Status = "blocked"
-				accum.Error = errMsg
-				accum.CompletedAt = time.Now().UTC()
-				return accum
+		// SECURITY: Fail-closed — if PolicyEnforcer errors or returns nil, block the step.
+		if policyErr != nil || policyResult == nil {
+			errMsg := "policy enforcer failed — blocking step (fail-closed)"
+			if policyErr != nil {
+				errMsg = "policy enforcer error: " + policyErr.Error()
 			}
-			if policyResult.Status == agentsdk.StatusNeedsApproval {
-				// ─ 2b. ApprovalGate ─
-				accum = e.handleApproval(ctx, run, eng, stepTask, stepRecord, accum)
-				if accum.Status == "awaiting_approval" {
-					return accum
-				}
+			e.logger.Error(errMsg, "step", stepTask.StepNumber)
+			if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg); updateErr != nil {
+				e.logger.Error("updating step to blocked (policy error)", "error", updateErr, "step_id", stepRecord.ID)
+			}
+			if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+				e.logger.Error("incrementing failed steps (policy error)", "error", incErr, "run_id", run.ID)
+			}
+			accum.Status = "blocked"
+			accum.Error = errMsg
+			accum.CompletedAt = time.Now().UTC()
+			return accum
+		}
+		if policyResult.Status == agentsdk.StatusBlocked {
+			errMsg := "blocked by policy: " + policyResult.Error
+			if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg); updateErr != nil {
+				e.logger.Error("updating step to blocked by policy", "error", updateErr, "step_id", stepRecord.ID)
+			}
+			if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+				e.logger.Error("incrementing failed steps after policy block", "error", incErr, "run_id", run.ID)
+			}
+			accum.Status = "blocked"
+			accum.Error = errMsg
+			accum.CompletedAt = time.Now().UTC()
+			return accum
+		}
+		if policyResult.Status == agentsdk.StatusNeedsApproval {
+			// ─ 2b. ApprovalGate ─
+			accum = e.handleApproval(ctx, run, eng, stepTask, stepRecord, accum)
+			if accum.Status == "awaiting_approval" {
+				return accum
 			}
 		}
 	}
@@ -300,19 +329,23 @@ func (e *RunEngine) executeStep(
 		return accum
 	}
 
-	execResult, err := executor.HandleTask(ctx, &agentsdk.Task{
-		ID:           uuid.New().String(),
-		RunID:        run.ID,
-		EngagementID: eng.ID,
-		OrgID:        eng.OrgID,
-		StepNumber:   stepTask.StepNumber,
-		Action:       stepTask.Action,
-		Tier:         stepTask.Tier,
-		Inputs:       stepTask.Inputs,
-		CreatedAt:    time.Now().UTC(),
+	execResult, execErr := executor.HandleTask(ctx, &agentsdk.Task{
+		ID:            uuid.New().String(),
+		RunID:         run.ID,
+		EngagementID:  eng.ID,
+		OrgID:         eng.OrgID,
+		StepNumber:    stepTask.StepNumber,
+		Action:        stepTask.Action,
+		Tier:          stepTask.Tier,
+		Inputs:        stepTask.Inputs,
+		PolicyContext: policyCtx,
+		CreatedAt:     time.Now().UTC(),
 	})
-	if err != nil {
-		errMsg := err.Error()
+	if execErr != nil || execResult == nil {
+		errMsg := "executor returned nil result"
+		if execErr != nil {
+			errMsg = execErr.Error()
+		}
 		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepFailed, &errMsg); updateErr != nil {
 			e.logger.Error("updating step to failed (executor error)", "error", updateErr, "step_id", stepRecord.ID)
 		}
@@ -348,14 +381,16 @@ func (e *RunEngine) executeStep(
 	}
 
 	// ─ 2d. EvidenceAgent ─
-	evidenceAgent, _ := e.agents.Get(agentsdk.AgentEvidence)
-	if evidenceAgent != nil {
+	evidenceAgent, evAgentErr := e.agents.Get(agentsdk.AgentEvidence)
+	if evAgentErr != nil {
+		e.logger.Warn("evidence agent not registered, skipping", "error", evAgentErr)
+	} else if evidenceAgent != nil {
 		evInputs, _ := json.Marshal(map[string]any{
 			"executor_outputs": execResult.Outputs,
 			"evidence_ids":     execResult.EvidenceIDs,
 			"action":           stepTask.Action,
 		})
-		evResult, err := evidenceAgent.HandleTask(ctx, &agentsdk.Task{
+		evResult, evErr := evidenceAgent.HandleTask(ctx, &agentsdk.Task{
 			ID:           uuid.New().String(),
 			RunID:        run.ID,
 			EngagementID: eng.ID,
@@ -366,21 +401,25 @@ func (e *RunEngine) executeStep(
 			Inputs:       evInputs,
 			CreatedAt:    time.Now().UTC(),
 		})
-		if err == nil && evResult != nil {
+		if evErr != nil {
+			e.logger.Error("evidence agent failed", "error", evErr, "step", stepTask.StepNumber)
+		} else if evResult != nil {
 			accum.EvidenceIDs = append(accum.EvidenceIDs, evResult.EvidenceIDs...)
 		}
 	}
 
 	// ─ 2e. TelemetryVerifier ─
-	tvAgent, _ := e.agents.Get(agentsdk.AgentTelemetryVerifier)
-	if tvAgent != nil {
+	tvAgent, tvAgentErr := e.agents.Get(agentsdk.AgentTelemetryVerifier)
+	if tvAgentErr != nil {
+		e.logger.Warn("telemetry verifier not registered, skipping", "error", tvAgentErr)
+	} else if tvAgent != nil {
 		tvInputs, _ := json.Marshal(map[string]any{
 			"siem_connector_id":  connectorMap["siem_connector_id"],
 			"edr_connector_id":   connectorMap["edr_connector_id"],
 			"action":             stepTask.Action,
 			"time_range_minutes": 60,
 		})
-		tvResult, err := tvAgent.HandleTask(ctx, &agentsdk.Task{
+		tvResult, tvErr := tvAgent.HandleTask(ctx, &agentsdk.Task{
 			ID:           uuid.New().String(),
 			RunID:        run.ID,
 			EngagementID: eng.ID,
@@ -391,20 +430,25 @@ func (e *RunEngine) executeStep(
 			Inputs:       tvInputs,
 			CreatedAt:    time.Now().UTC(),
 		})
-		if err == nil && tvResult != nil {
+		if tvErr != nil {
+			e.logger.Error("telemetry verifier failed", "error", tvErr, "step", stepTask.StepNumber)
+		} else if tvResult != nil {
 			accum.Findings = append(accum.Findings, tvResult.Findings...)
 			// Parse telemetry result for coverage tracking
 			var tvOut map[string]any
-			_ = json.Unmarshal(tvResult.Outputs, &tvOut)
-			if found, ok := tvOut["telemetry_found"].(bool); ok {
-				accum.HasTelemetry = found
+			if unmarshalErr := json.Unmarshal(tvResult.Outputs, &tvOut); unmarshalErr == nil {
+				if found, ok := tvOut["telemetry_found"].(bool); ok {
+					accum.HasTelemetry = found
+				}
 			}
 		}
 	}
 
 	// ─ 2f. DetectionEvaluator ─
-	deAgent, _ := e.agents.Get(agentsdk.AgentDetectionEvaluator)
-	if deAgent != nil {
+	deAgent, deAgentErr := e.agents.Get(agentsdk.AgentDetectionEvaluator)
+	if deAgentErr != nil {
+		e.logger.Warn("detection evaluator not registered, skipping", "error", deAgentErr)
+	} else if deAgent != nil {
 		deInputs, _ := json.Marshal(map[string]any{
 			"siem_connector_id":  connectorMap["siem_connector_id"],
 			"edr_connector_id":   connectorMap["edr_connector_id"],
@@ -412,7 +456,7 @@ func (e *RunEngine) executeStep(
 			"expected_technique": accum.TechniqueID,
 			"max_latency_sec":    120,
 		})
-		deResult, err := deAgent.HandleTask(ctx, &agentsdk.Task{
+		deResult, deErr := deAgent.HandleTask(ctx, &agentsdk.Task{
 			ID:           uuid.New().String(),
 			RunID:        run.ID,
 			EngagementID: eng.ID,
@@ -423,13 +467,16 @@ func (e *RunEngine) executeStep(
 			Inputs:       deInputs,
 			CreatedAt:    time.Now().UTC(),
 		})
-		if err == nil && deResult != nil {
+		if deErr != nil {
+			e.logger.Error("detection evaluator failed", "error", deErr, "step", stepTask.StepNumber)
+		} else if deResult != nil {
 			accum.Findings = append(accum.Findings, deResult.Findings...)
 			var deOut map[string]any
-			_ = json.Unmarshal(deResult.Outputs, &deOut)
-			if alerts, ok := deOut["alerts_found"].(float64); ok && alerts > 0 {
-				accum.HasDetection = true
-				accum.HasAlert = true
+			if unmarshalErr := json.Unmarshal(deResult.Outputs, &deOut); unmarshalErr == nil {
+				if alerts, ok := deOut["alerts_found"].(float64); ok && alerts > 0 {
+					accum.HasDetection = true
+					accum.HasAlert = true
+				}
 			}
 		}
 	}
@@ -480,7 +527,7 @@ func (e *RunEngine) handleApproval(
 		return accum
 	}
 
-	approvalResult, _ := approvalAgent.HandleTask(ctx, &agentsdk.Task{
+	approvalResult, approvalErr := approvalAgent.HandleTask(ctx, &agentsdk.Task{
 		ID:           uuid.New().String(),
 		RunID:        run.ID,
 		EngagementID: eng.ID,
@@ -491,6 +538,20 @@ func (e *RunEngine) handleApproval(
 		CreatedAt:    time.Now().UTC(),
 	})
 
+	if approvalErr != nil {
+		errMsg := "approval gate error: " + approvalErr.Error()
+		e.logger.Error(errMsg, "step", stepTask.StepNumber)
+		if updateErr := e.steps.UpdateStatus(ctx, stepRecord.ID, models.StepBlocked, &errMsg); updateErr != nil {
+			e.logger.Error("updating step to blocked (approval error)", "error", updateErr, "step_id", stepRecord.ID)
+		}
+		if incErr := e.runs.IncrementSteps(ctx, run.ID, 0, 1); incErr != nil {
+			e.logger.Error("incrementing failed steps (approval error)", "error", incErr, "run_id", run.ID)
+		}
+		accum.Status = "blocked"
+		accum.Error = errMsg
+		accum.CompletedAt = time.Now().UTC()
+		return accum
+	}
 	if approvalResult != nil && approvalResult.Status == agentsdk.StatusNeedsApproval {
 		e.logger.Info("step awaiting human approval, skipping execution",
 			"run_id", run.ID,
@@ -619,14 +680,16 @@ func (e *RunEngine) ExecuteApprovedStep(ctx context.Context, run *models.Run, en
 	}
 
 	// ─ EvidenceAgent ─
-	evidenceAgent, _ := e.agents.Get(agentsdk.AgentEvidence)
-	if evidenceAgent != nil {
+	evidenceAgent, evAgentErr := e.agents.Get(agentsdk.AgentEvidence)
+	if evAgentErr != nil {
+		e.logger.Warn("evidence agent not registered, skipping", "error", evAgentErr)
+	} else if evidenceAgent != nil {
 		evInputs, _ := json.Marshal(map[string]any{
 			"executor_outputs": execResult.Outputs,
 			"evidence_ids":     execResult.EvidenceIDs,
 			"action":           stepTask.Action,
 		})
-		evResult, err := evidenceAgent.HandleTask(ctx, &agentsdk.Task{
+		evResult, evErr := evidenceAgent.HandleTask(ctx, &agentsdk.Task{
 			ID:           uuid.New().String(),
 			RunID:        run.ID,
 			EngagementID: eng.ID,
@@ -637,21 +700,25 @@ func (e *RunEngine) ExecuteApprovedStep(ctx context.Context, run *models.Run, en
 			Inputs:       evInputs,
 			CreatedAt:    time.Now().UTC(),
 		})
-		if err == nil && evResult != nil {
+		if evErr != nil {
+			e.logger.Error("evidence agent failed", "error", evErr, "step", stepTask.StepNumber)
+		} else if evResult != nil {
 			accum.EvidenceIDs = append(accum.EvidenceIDs, evResult.EvidenceIDs...)
 		}
 	}
 
 	// ─ TelemetryVerifier ─
-	tvAgent, _ := e.agents.Get(agentsdk.AgentTelemetryVerifier)
-	if tvAgent != nil {
+	tvAgent, tvAgentErr := e.agents.Get(agentsdk.AgentTelemetryVerifier)
+	if tvAgentErr != nil {
+		e.logger.Warn("telemetry verifier not registered, skipping", "error", tvAgentErr)
+	} else if tvAgent != nil {
 		tvInputs, _ := json.Marshal(map[string]any{
 			"siem_connector_id":  connectorMap["siem_connector_id"],
 			"edr_connector_id":   connectorMap["edr_connector_id"],
 			"action":             stepTask.Action,
 			"time_range_minutes": 60,
 		})
-		tvResult, err := tvAgent.HandleTask(ctx, &agentsdk.Task{
+		tvResult, tvErr := tvAgent.HandleTask(ctx, &agentsdk.Task{
 			ID:           uuid.New().String(),
 			RunID:        run.ID,
 			EngagementID: eng.ID,
@@ -662,19 +729,24 @@ func (e *RunEngine) ExecuteApprovedStep(ctx context.Context, run *models.Run, en
 			Inputs:       tvInputs,
 			CreatedAt:    time.Now().UTC(),
 		})
-		if err == nil && tvResult != nil {
+		if tvErr != nil {
+			e.logger.Error("telemetry verifier failed", "error", tvErr, "step", stepTask.StepNumber)
+		} else if tvResult != nil {
 			accum.Findings = append(accum.Findings, tvResult.Findings...)
 			var tvOut map[string]any
-			_ = json.Unmarshal(tvResult.Outputs, &tvOut)
-			if found, ok := tvOut["telemetry_found"].(bool); ok {
-				accum.HasTelemetry = found
+			if unmarshalErr := json.Unmarshal(tvResult.Outputs, &tvOut); unmarshalErr == nil {
+				if found, ok := tvOut["telemetry_found"].(bool); ok {
+					accum.HasTelemetry = found
+				}
 			}
 		}
 	}
 
 	// ─ DetectionEvaluator ─
-	deAgent, _ := e.agents.Get(agentsdk.AgentDetectionEvaluator)
-	if deAgent != nil {
+	deAgent, deAgentErr := e.agents.Get(agentsdk.AgentDetectionEvaluator)
+	if deAgentErr != nil {
+		e.logger.Warn("detection evaluator not registered, skipping", "error", deAgentErr)
+	} else if deAgent != nil {
 		deInputs, _ := json.Marshal(map[string]any{
 			"siem_connector_id":  connectorMap["siem_connector_id"],
 			"edr_connector_id":   connectorMap["edr_connector_id"],
@@ -682,7 +754,7 @@ func (e *RunEngine) ExecuteApprovedStep(ctx context.Context, run *models.Run, en
 			"expected_technique": accum.TechniqueID,
 			"max_latency_sec":    120,
 		})
-		deResult, err := deAgent.HandleTask(ctx, &agentsdk.Task{
+		deResult, deErr := deAgent.HandleTask(ctx, &agentsdk.Task{
 			ID:           uuid.New().String(),
 			RunID:        run.ID,
 			EngagementID: eng.ID,
@@ -693,13 +765,16 @@ func (e *RunEngine) ExecuteApprovedStep(ctx context.Context, run *models.Run, en
 			Inputs:       deInputs,
 			CreatedAt:    time.Now().UTC(),
 		})
-		if err == nil && deResult != nil {
+		if deErr != nil {
+			e.logger.Error("detection evaluator failed", "error", deErr, "step", stepTask.StepNumber)
+		} else if deResult != nil {
 			accum.Findings = append(accum.Findings, deResult.Findings...)
 			var deOut map[string]any
-			_ = json.Unmarshal(deResult.Outputs, &deOut)
-			if alerts, ok := deOut["alerts_found"].(float64); ok && alerts > 0 {
-				accum.HasDetection = true
-				accum.HasAlert = true
+			if unmarshalErr := json.Unmarshal(deResult.Outputs, &deOut); unmarshalErr == nil {
+				if alerts, ok := deOut["alerts_found"].(float64); ok && alerts > 0 {
+					accum.HasDetection = true
+					accum.HasAlert = true
+				}
 			}
 		}
 	}
@@ -765,7 +840,11 @@ func (e *RunEngine) runPostStepAgents(
 	}
 
 	// ─ 3a. ResponseAutomator ─
-	raAgent, _ := e.agents.Get(agentsdk.AgentResponseAutomator)
+	raAgent, raErr := e.agents.Get(agentsdk.AgentResponseAutomator)
+	if raErr != nil {
+		e.logger.Warn("response automator not registered, skipping", "error", raErr)
+	}
+	_ = raErr
 	if raAgent != nil && len(allFindingSummaries) > 0 {
 		raInputs, _ := json.Marshal(map[string]any{
 			"findings":                  allFindingSummaries,
@@ -800,7 +879,11 @@ func (e *RunEngine) runPostStepAgents(
 	}
 
 	// ─ 3b. CoverageMapper ─
-	cmAgent, _ := e.agents.Get(agentsdk.AgentCoverageMapper)
+	cmAgent, cmErr := e.agents.Get(agentsdk.AgentCoverageMapper)
+	if cmErr != nil {
+		e.logger.Warn("coverage mapper not registered, skipping", "error", cmErr)
+	}
+	_ = cmErr
 	if cmAgent != nil && len(techniqueResults) > 0 {
 		cmInputs, _ := json.Marshal(map[string]any{
 			"technique_results": techniqueResults,
@@ -820,7 +903,11 @@ func (e *RunEngine) runPostStepAgents(
 	}
 
 	// ─ 3c. DriftAgent ─
-	driftAgent, _ := e.agents.Get(agentsdk.AgentDrift)
+	driftAgent, driftErr := e.agents.Get(agentsdk.AgentDrift)
+	if driftErr != nil {
+		e.logger.Warn("drift agent not registered, skipping", "error", driftErr)
+	}
+	_ = driftErr
 	if driftAgent != nil && len(preCoverage) > 0 {
 		driftInputs, _ := json.Marshal(map[string]any{
 			"previous_coverage": preCoverage,
@@ -845,7 +932,11 @@ func (e *RunEngine) runPostStepAgents(
 	}
 
 	// ─ 3d. RegressionAgent ─
-	regAgent, _ := e.agents.Get(agentsdk.AgentRegression)
+	regAgent, regErr := e.agents.Get(agentsdk.AgentRegression)
+	if regErr != nil {
+		e.logger.Warn("regression agent not registered, skipping", "error", regErr)
+	}
+	_ = regErr
 	if regAgent != nil {
 		regInputs, _ := json.Marshal(map[string]any{
 			"current_run_id": run.ID.String(),
@@ -869,7 +960,11 @@ func (e *RunEngine) runPostStepAgents(
 	}
 
 	// ─ 3e. ReceiptAgent (with full step data) ─
-	receiptAgent, _ := e.agents.Get(agentsdk.AgentReceipt)
+	receiptAgent, rcptErr := e.agents.Get(agentsdk.AgentReceipt)
+	if rcptErr != nil {
+		e.logger.Warn("receipt agent not registered, skipping", "error", rcptErr)
+	}
+	_ = rcptErr
 	if receiptAgent != nil {
 		stepRecords := e.buildStepRecords(allAccum)
 		receiptInputs, _ := json.Marshal(map[string]any{

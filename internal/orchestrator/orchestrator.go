@@ -3,8 +3,10 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -15,14 +17,15 @@ import (
 
 // Orchestrator subscribes to run triggers and dispatches them to the RunEngine.
 type Orchestrator struct {
-	engine     *RunEngine
-	consumer   *natspkg.Consumer
-	runs       *repository.RunRepo
+	engine      *RunEngine
+	consumer    *natspkg.Consumer
+	runs        *repository.RunRepo
 	engagements *repository.EngagementRepo
-	killSwitch *KillSwitch
-	logger     *slog.Logger
-	mu         sync.Mutex
-	cancelFns  map[uuid.UUID]context.CancelFunc
+	approvals   *repository.ApprovalRepo
+	killSwitch  *KillSwitch
+	logger      *slog.Logger
+	mu          sync.Mutex
+	cancelFns   map[uuid.UUID]context.CancelFunc
 }
 
 // NewOrchestrator creates a new orchestrator.
@@ -31,6 +34,7 @@ func NewOrchestrator(
 	consumer *natspkg.Consumer,
 	runs *repository.RunRepo,
 	engagements *repository.EngagementRepo,
+	approvals *repository.ApprovalRepo,
 	killSwitch *KillSwitch,
 	logger *slog.Logger,
 ) *Orchestrator {
@@ -39,6 +43,7 @@ func NewOrchestrator(
 		consumer:    consumer,
 		runs:        runs,
 		engagements: engagements,
+		approvals:   approvals,
 		killSwitch:  killSwitch,
 		logger:      logger,
 		cancelFns:   make(map[uuid.UUID]context.CancelFunc),
@@ -175,6 +180,32 @@ func (o *Orchestrator) handleApprovalGranted(ctx context.Context, data []byte) e
 	if err != nil {
 		o.logger.Error("loading engagement for approved step", "engagement_id", msg.EngagementID, "error", err)
 		return nil
+	}
+
+	// SECURITY: Verify the approval has not expired before executing.
+	if o.approvals != nil {
+		approval, err := o.approvals.GetByID(ctx, msg.ApprovalID)
+		if err != nil {
+			o.logger.Error("failed to load approval record — blocking execution",
+				"approval_id", msg.ApprovalID, "error", err)
+			return fmt.Errorf("approval record not found: %w", err)
+		}
+		if approval.ExpiresAt != nil && time.Now().UTC().After(*approval.ExpiresAt) {
+			o.logger.Warn("approval has expired — refusing to execute step",
+				"approval_id", msg.ApprovalID,
+				"expires_at", approval.ExpiresAt,
+				"run_id", msg.RunID,
+				"step_number", msg.StepNumber,
+			)
+			return nil
+		}
+		if approval.Status != models.ApprovalApproved {
+			o.logger.Warn("approval status is not approved — refusing to execute step",
+				"approval_id", msg.ApprovalID,
+				"status", approval.Status,
+			)
+			return nil
+		}
 	}
 
 	go func() {

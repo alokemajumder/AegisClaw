@@ -133,38 +133,47 @@ func (a *PlannerAgent) planFromPlaybooks(task *agentsdk.Task) []agentsdk.Task {
 func (a *PlannerAgent) fallbackPlan(task *agentsdk.Task) []agentsdk.Task {
 	a.logger.Info("using fallback validation plan")
 
-	return []agentsdk.Task{
-		{
-			ID:           uuid.New().String(),
-			RunID:        task.RunID,
-			EngagementID: task.EngagementID,
-			OrgID:        task.OrgID,
-			StepNumber:   1,
-			Action:       "query_telemetry",
-			Tier:         0,
-			CreatedAt:    time.Now().UTC(),
-		},
-		{
-			ID:           uuid.New().String(),
-			RunID:        task.RunID,
-			EngagementID: task.EngagementID,
-			OrgID:        task.OrgID,
-			StepNumber:   2,
-			Action:       "check_edr_agents",
-			Tier:         0,
-			CreatedAt:    time.Now().UTC(),
-		},
-		{
-			ID:           uuid.New().String(),
-			RunID:        task.RunID,
-			EngagementID: task.EngagementID,
-			OrgID:        task.OrgID,
-			StepNumber:   3,
-			Action:       "drop_marker_file",
-			Tier:         1,
-			CreatedAt:    time.Now().UTC(),
-		},
+	// Define all default steps with their required tiers
+	type defaultStep struct {
+		action string
+		tier   int
 	}
+	defaults := []defaultStep{
+		{"query_telemetry", 0},
+		{"check_edr_agents", 0},
+		{"drop_marker_file", 1},
+	}
+
+	// SECURITY: Filter fallback steps by allowed tiers to prevent generating
+	// steps that the engagement is not authorized to run.
+	allowedTiers := map[int]bool{}
+	if task.PolicyContext != nil {
+		for _, t := range task.PolicyContext.AllowedTiers {
+			allowedTiers[t] = true
+		}
+	}
+
+	var steps []agentsdk.Task
+	stepNum := 1
+	for _, d := range defaults {
+		// If PolicyContext is available, only include steps with allowed tiers
+		if task.PolicyContext != nil && !allowedTiers[d.tier] {
+			a.logger.Info("fallback step skipped: tier not allowed", "action", d.action, "tier", d.tier)
+			continue
+		}
+		steps = append(steps, agentsdk.Task{
+			ID:           uuid.New().String(),
+			RunID:        task.RunID,
+			EngagementID: task.EngagementID,
+			OrgID:        task.OrgID,
+			StepNumber:   stepNum,
+			Action:       d.action,
+			Tier:         d.tier,
+			CreatedAt:    time.Now().UTC(),
+		})
+		stepNum++
+	}
+	return steps
 }
 
 func (a *PlannerAgent) planSource(steps []agentsdk.Task) string {

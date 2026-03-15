@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -125,22 +127,23 @@ func (a *RegressionAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (
 		return a.handleSimulated(task)
 	}
 
-	// Build a set of finding titles from the baseline (previously passing = no finding)
-	// and check if new findings appeared in the current run
-	baselineTitles := make(map[string]bool)
+	// Build a set of finding fingerprints from the baseline for comparison.
+	// Use title + severity + technique IDs for more robust matching than title alone.
+	baselineFingerprints := make(map[string]bool)
 	for _, f := range baselineFindings {
-		baselineTitles[f.Title] = true
+		baselineFingerprints[findingFingerprint(f)] = true
 	}
 
-	currentTitles := make(map[string]bool)
+	currentFingerprints := make(map[string]bool)
 	for _, f := range currentFindings {
-		currentTitles[f.Title] = true
+		currentFingerprints[findingFingerprint(f)] = true
 	}
 
 	// Regressions: findings in current that were not in baseline
 	var regressionFindings []agentsdk.FindingOutput
 	for _, f := range currentFindings {
-		if !baselineTitles[f.Title] {
+		fp := findingFingerprint(f)
+		if !baselineFingerprints[fp] {
 			regressionFindings = append(regressionFindings, agentsdk.FindingOutput{
 				Title:       fmt.Sprintf("Regression: %s", f.Title),
 				Description: fmt.Sprintf("Finding appeared in run %s but was not present in baseline run %s", currentRun.ID, baselineRun.ID),
@@ -155,7 +158,8 @@ func (a *RegressionAgent) HandleTask(ctx context.Context, task *agentsdk.Task) (
 	// Count resolved findings: in baseline but not in current
 	resolvedCount := 0
 	for _, f := range baselineFindings {
-		if !currentTitles[f.Title] {
+		fp := findingFingerprint(f)
+		if !currentFingerprints[fp] {
 			resolvedCount++
 		}
 	}
@@ -205,4 +209,14 @@ func (a *RegressionAgent) handleSimulated(task *agentsdk.Task) (*agentsdk.Result
 func (a *RegressionAgent) Shutdown(_ context.Context) error {
 	a.logger.Info("regression agent shutting down")
 	return nil
+}
+
+// findingFingerprint creates a stable fingerprint for a finding using title,
+// severity, and technique IDs. This is more robust than title-only matching
+// which can be spoofed or can miss findings that change severity.
+func findingFingerprint(f models.Finding) string {
+	techniques := make([]string, len(f.TechniqueIDs))
+	copy(techniques, f.TechniqueIDs)
+	sort.Strings(techniques)
+	return fmt.Sprintf("%s|%s|%s", f.Title, f.Severity, strings.Join(techniques, ","))
 }

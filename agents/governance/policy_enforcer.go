@@ -41,41 +41,51 @@ func (a *PolicyEnforcerAgent) HandleTask(ctx context.Context, task *agentsdk.Tas
 		"action", task.Action,
 	)
 
-	// Validate tier is allowed
-	if task.PolicyContext != nil {
-		allowed := false
-		for _, t := range task.PolicyContext.AllowedTiers {
-			if t == task.Tier {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return &agentsdk.Result{
-				TaskID:      task.ID,
-				Status:      agentsdk.StatusBlocked,
-				Error:       fmt.Sprintf("tier %d is not in allowed tiers %v", task.Tier, task.PolicyContext.AllowedTiers),
-				CompletedAt: time.Now().UTC(),
-			}, nil
-		}
-	}
-
-	// Tier 1+ requires a non-empty target allowlist
-	if task.Tier >= 1 && task.PolicyContext != nil && len(task.PolicyContext.TargetAllowlist) == 0 {
+	// SECURITY: Fail-closed — if no PolicyContext is provided, block the step.
+	// This prevents bypass by omitting policy data from the task.
+	if task.PolicyContext == nil {
+		a.logger.Error("policy enforcer blocked task: no PolicyContext provided", "task_id", task.ID)
 		return &agentsdk.Result{
 			TaskID:      task.ID,
 			Status:      agentsdk.StatusBlocked,
-			Error:       "tier 1+ actions require a non-empty target allowlist on the engagement",
+			Error:       "no policy context provided — all actions require policy evaluation",
 			CompletedAt: time.Now().UTC(),
 		}, nil
 	}
 
-	// Tier 3 is always blocked
+	// Tier 3 is always blocked (check first, before tier-allowed check)
 	if task.Tier >= 3 {
 		return &agentsdk.Result{
 			TaskID:      task.ID,
 			Status:      agentsdk.StatusBlocked,
 			Error:       "tier 3 actions are prohibited",
+			CompletedAt: time.Now().UTC(),
+		}, nil
+	}
+
+	// Validate tier is in the engagement's allowed tiers list
+	allowed := false
+	for _, t := range task.PolicyContext.AllowedTiers {
+		if t == task.Tier {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return &agentsdk.Result{
+			TaskID:      task.ID,
+			Status:      agentsdk.StatusBlocked,
+			Error:       fmt.Sprintf("tier %d is not in allowed tiers %v", task.Tier, task.PolicyContext.AllowedTiers),
+			CompletedAt: time.Now().UTC(),
+		}, nil
+	}
+
+	// Tier 1+ requires a non-empty target allowlist
+	if task.Tier >= 1 && len(task.PolicyContext.TargetAllowlist) == 0 {
+		return &agentsdk.Result{
+			TaskID:      task.ID,
+			Status:      agentsdk.StatusBlocked,
+			Error:       "tier 1+ actions require a non-empty target allowlist on the engagement",
 			CompletedAt: time.Now().UTC(),
 		}, nil
 	}

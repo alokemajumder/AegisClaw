@@ -110,10 +110,24 @@ func (a *TelemetryVerifierAgent) verifyWithConnectors(ctx context.Context, task 
 		}
 	}
 
-	// If no specific connector IDs provided, report what we can
+	// SECURITY: If no connectors were actually queried, report accurately.
+	// Do NOT fabricate source names — this would create false coverage data.
 	if len(sourcesChecked) == 0 {
-		sourcesChecked = []string{"siem", "edr"}
-		a.logger.Info("no connector IDs in task inputs, reporting default sources")
+		a.logger.Warn("no connector IDs provided in task inputs, no telemetry verified")
+		outputs, _ := json.Marshal(map[string]any{
+			"telemetry_found":  false,
+			"sources_checked":  []string{},
+			"events_matched":   0,
+			"events_expected":  0,
+			"coverage_pct":     0,
+			"no_connectors_provided": true,
+		})
+		return &agentsdk.Result{
+			TaskID:      task.ID,
+			Status:      agentsdk.StatusCompleted,
+			Outputs:     outputs,
+			CompletedAt: time.Now().UTC(),
+		}, nil
 	}
 
 	coveragePct := 0

@@ -92,16 +92,20 @@ func (g *Generator) Verify(receipt *RunReceipt) (bool, error) {
 }
 
 func (g *Generator) sign(receipt *RunReceipt) (string, error) {
-	// Serialize without the signature field
+	// Serialize without the signature field for signing.
+	// Go's json.Marshal produces deterministic key ordering (alphabetical by field
+	// name in structs), so this is safe for HMAC comparison across runs.
 	savedSig := receipt.Signature
 	receipt.Signature = ""
 	data, err := json.Marshal(receipt)
 	receipt.Signature = savedSig
 	if err != nil {
-		return "", fmt.Errorf("marshaling receipt: %w", err)
+		return "", fmt.Errorf("marshaling receipt for signing: %w", err)
 	}
 
 	mac := hmac.New(sha256.New, g.hmacKey)
-	mac.Write(data)
+	if _, err := mac.Write(data); err != nil {
+		return "", fmt.Errorf("writing to HMAC: %w", err)
+	}
 	return hex.EncodeToString(mac.Sum(nil)), nil
 }
