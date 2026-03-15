@@ -136,7 +136,12 @@ Look for issues tagged with `good-first-issue` — these are accessible for newc
 Adding new connectors is a great way to contribute. The platform currently ships 5 connectors (Sentinel, Defender, ServiceNow, Teams, Slack) with many more planned. See [Connector Development Guide](docs/connector-development.md).
 
 ### Agent Development
-The platform uses 12 agents across 4 squads, all wired into a 3-phase `RunEngine` pipeline. Agents implement the `agentsdk.Agent` interface (`Name`, `Squad`, `Init`, `HandleTask`, `Shutdown`). Dependencies are injected via `agentsdk.AgentDeps` using `any`-typed fields to avoid circular imports — agents type-assert in their `Init()` methods. When adding or modifying agents, ensure they return honest data (zeros/empty) when dependencies are unavailable rather than simulated/fake results.
+The platform uses 12 agents across 4 squads, all wired into a 3-phase `RunEngine` pipeline. Agents implement the `agentsdk.Agent` interface (`Name`, `Squad`, `Init`, `HandleTask`, `Shutdown`). Dependencies are injected via `agentsdk.AgentDeps` using `any`-typed fields to avoid circular imports — agents type-assert in their `Init()` methods. Key security principles for agent development:
+
+- **Fail-closed error handling**: If an agent cannot evaluate a policy or security constraint, it must block the action — never silently pass through
+- **Honest data only**: Return zeros/empty when dependencies are unavailable rather than simulated/fake results
+- **Sanitize external inputs**: Any data passed to external systems (ITSM tickets, notifications) must be sanitized (strip control chars, truncate length)
+- **Validate paths and commands**: Never trust user-supplied file paths or command strings without validation
 
 ### Playbook Library
 Expanding the validation playbook library helps everyone. Currently 13 playbooks across Tier 0-2. See [Playbook Authoring Guide](docs/playbook-authoring.md).

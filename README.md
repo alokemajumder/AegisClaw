@@ -72,10 +72,10 @@ The platform is **agents-first**: autonomous agent squads (Red + Blue + Purple l
 
 All 12 agents are wired into a 3-phase `RunEngine` pipeline that executes end-to-end on every validation run:
 
-- **Governance Squad**: PolicyEnforcer (tier/allowlist enforcement), ApprovalGate (human approval for Tier 2+), ReceiptAgent (HMAC-SHA256 signed audit receipts)
+- **Governance Squad**: PolicyEnforcer (fail-closed tier/allowlist enforcement), ApprovalGate (human approval for Tier 2+ with expiry verification), ReceiptAgent (HMAC-SHA256 signed audit receipts with unsigned-receipt detection)
 - **Emulation Squad (Red)**: Planner (playbook loading + step ordering), Executor (safe step execution), EvidenceAgent (artifact capture to MinIO)
-- **Validation Squad (Blue)**: TelemetryVerifier (SIEM/EDR telemetry queries), DetectionEvaluator (alert verification + latency measurement), ResponseAutomator (ITSM tickets + notifications)
-- **Improvement Squad (Purple)**: CoverageMapper (ATT&CK coverage matrix updates), DriftAgent (pre/post-run coverage comparison), RegressionAgent (cross-run finding comparison)
+- **Validation Squad (Blue)**: TelemetryVerifier (SIEM/EDR telemetry queries, honest empty results when no connectors), DetectionEvaluator (alert verification + latency measurement), ResponseAutomator (ITSM tickets with input sanitization + notifications)
+- **Improvement Squad (Purple)**: CoverageMapper (ATT&CK coverage matrix updates), DriftAgent (pre/post-run coverage comparison), RegressionAgent (cross-run finding comparison with composite fingerprinting)
 
 ### Enterprise-Grade Controls
 - Audit-grade immutable run receipts (HMAC-SHA256 signed with full step data + scope snapshot)
@@ -276,11 +276,15 @@ For detailed deployment instructions, see the [Deployment Guide](docs/deployment
 
 AegisClaw enforces strict safety controls that **cannot be bypassed**:
 
+- **Fail-closed policy enforcement**: Missing policy context blocks all actions — no silent pass-through
 - **Hard allowlists**: Only targets explicitly listed can be validated
 - **Tier enforcement**: Tier 3 (DoS/exfil/destructive) is always blocked
-- **Human approval gates**: Tier 2+ actions require explicit human approval
+- **Human approval gates**: Tier 2+ actions require explicit human approval with expiry re-verification
+- **Command allowlist + PATH protection**: Only safe commands allowed; absolute paths resolved to base names; arguments rejected
+- **Marker file path validation**: Cleanup actions restricted to AegisClaw temp directories only
 - **Mandatory cleanup**: All Tier 1+ steps must verify cleanup before completion
 - **Kill switch**: Global and per-run emergency stop with cleanup confirmation
+- **ITSM injection prevention**: Ticket fields sanitized (control chars stripped, length truncated)
 - **Immutable audit trail**: Every action, approval, and policy change is logged
 
 ## Contributing
@@ -360,6 +364,15 @@ make test
 - [x] Circuit breakers wired to all connector calls
 - [x] Connector secret_ref resolved from environment variables
 - [x] Migration 000003: token_blacklist and login_attempts tables
+- [x] Agent security audit: 22 findings fixed (1 critical, 9 high, 10 medium, 2 low)
+- [x] Fail-closed PolicyEnforcer (blocks on missing context or agent failure)
+- [x] Approval expiry re-verification at execution time
+- [x] Command allowlist PATH traversal prevention + argument rejection
+- [x] Marker file path validation (temp directory restriction)
+- [x] ITSM ticket field sanitization (injection prevention)
+- [x] Receipt integrity findings (unsigned/failed signing detection)
+- [x] Composite finding fingerprinting for regression analysis
+- [x] Honest telemetry (no fabricated sources when connectors unavailable)
 - [ ] gVisor runner sandboxing
 - [ ] Additional connectors (Entra ID, Splunk, Elastic, CrowdStrike, Jira, Okta)
 - [ ] PDF report renderer

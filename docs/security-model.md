@@ -19,7 +19,8 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - Safe network behavior simulation
 - **Mandatory cleanup verification** — step is not marked complete until cleanup is confirmed
 - Rollback on failure
-- **Command allowlist**: The `execute_encoded_command` playbook action enforces a strict allowlist of permitted commands — arbitrary command execution is blocked at the executor level
+- **Command allowlist**: The `execute_encoded_command` playbook action enforces a strict allowlist of permitted commands (`whoami`, `hostname`, `ipconfig`, `systeminfo`, `dir`, `ls`, `uname`, `id`, `pwd`). Absolute paths are resolved to base names (preventing `/usr/bin/rm`-style bypasses). Arguments are rejected entirely. Arbitrary command execution is blocked at the executor level.
+- **Marker file path validation**: The `verify_cleanup` action validates that marker file paths are within AegisClaw's temp directory (`aegisclaw-marker-*` prefix under `os.TempDir()`) before any filesystem deletion — preventing arbitrary path deletion via crafted inputs
 
 ### Tier 2 — Sensitive Validation (Requires Human Approval)
 - Actions that may impact authentication flows
@@ -27,6 +28,7 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - Credential-adjacent validation
 - **Explicit approval required** from configured approver (CISO or delegated security owner)
 - Approval has configurable expiry (default: 24 hours)
+- **Approval expiry verification**: When the orchestrator receives an approval-granted event, it re-checks the approval record's expiry and status before executing — stale or revoked approvals are rejected
 
 ### Tier 3 — Prohibited by Default (Always Blocked)
 - Denial of service / stress testing
@@ -36,6 +38,12 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - **Cannot be unblocked** through normal policy changes
 
 ## Safety Controls
+
+### Fail-Closed Policy Enforcement
+- The PolicyEnforcer agent operates in **fail-closed mode**: if no PolicyContext is provided, all actions are blocked
+- If the PolicyEnforcer agent is not registered or fails to execute, the step is blocked — there is no fallback to permissive behavior
+- Tier 3 actions are checked and blocked first, before any other policy evaluation
+- This ensures that misconfiguration or missing context cannot accidentally allow dangerous actions
 
 ### Target Allowlists and Exclusions
 - Engagements define explicit target allowlists (asset UUIDs)
@@ -141,6 +149,7 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - Receipts are **HMAC-SHA256 signed** using `internal/receipt.Generator` to ensure tamper evidence
 - The HMAC key is configured via `auth.receipt_hmac_key` (environment variable `AEGISCLAW_AUTH_RECEIPT_HMAC_KEY`)
 - If no HMAC key is configured, receipts are generated unsigned with a warning — the system does not generate fake signatures
+- **Unsigned receipt detection**: The ReceiptAgent generates a medium-severity finding when a receipt is unsigned, and a high-severity finding if signing fails — ensuring visibility into receipt integrity gaps
 - Stored in MinIO evidence vault with versioning enabled (immutable bucket policy recommended)
 - Receipt generation is the final step in the RunEngine pipeline (Phase 3, step e), ensuring all findings, coverage updates, and drift analysis are captured
 
@@ -175,12 +184,33 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 
 ## Threat Model
 
+### ITSM Injection Prevention
+- Ticket fields (title, description, severity) are **sanitized** before submission to ITSM connectors
+- Control characters are stripped (except newline/tab in descriptions)
+- Fields are truncated to prevent oversized payloads (title: 200 chars, description: 4000 chars, severity: 20 chars)
+- Prevents injection attacks against ServiceNow and other ITSM platforms via crafted finding data
+
+### Finding Deduplication Integrity
+- The RegressionAgent uses a **composite fingerprint** (title + severity + technique IDs) for cross-run finding comparison
+- This prevents false regression reports when the same finding changes description but retains its core identity
+- Technique IDs are sorted before fingerprinting to ensure consistent comparison regardless of ordering
+
+### Telemetry Honesty
+- Validation agents (TelemetryVerifier, DetectionEvaluator) return **honest empty results** when no connectors are available
+- No fabricated source names or simulated telemetry data — gaps are reported as gaps
+- This ensures that coverage reports and drift analysis reflect the actual state of monitoring
+
 ### What AegisClaw Defends Against
 - Accidental scope creep (hard allowlist enforcement)
 - Runaway automation (rate limits, concurrency caps, circuit breakers)
 - Unauthorized escalation (tier enforcement, approval gates)
 - Evidence tampering (HMAC-signed receipts, immutable audit log)
 - Credential leakage (vault references, never stored in config)
+- Policy bypass via missing context (fail-closed enforcement)
+- ITSM injection via crafted finding data (field sanitization)
+- PATH traversal in command execution (base name resolution)
+- Arbitrary file deletion via marker path manipulation (temp dir validation)
+- Stale approval exploitation (expiry re-verification at execution time)
 
 ### What is Explicitly Out of Scope
 - Free-form exploitation or exploit development

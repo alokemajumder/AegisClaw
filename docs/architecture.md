@@ -121,18 +121,18 @@ AegisClaw uses 12 autonomous agents organized into 4 squads. All 12 agents are w
 
 | Squad | Agent | Role |
 |-------|-------|------|
-| **Governance** | PolicyEnforcer | Validates every step against tier policy, target allowlist, and exclusions. Blocks Tier 3. Gates Tier 2+ for approval. Requires non-empty allowlist for Tier 1+. |
+| **Governance** | PolicyEnforcer | **Fail-closed**: validates every step against tier policy, target allowlist, and exclusions. Blocks Tier 3. Gates Tier 2+ for approval. Requires non-empty allowlist for Tier 1+. Blocks all actions when PolicyContext is missing. |
 | **Governance** | ApprovalGate | Creates DB-backed approval records for Tier 2+ actions. Blocks execution until human decision. |
-| **Governance** | ReceiptAgent | Generates HMAC-SHA256 signed, tamper-evident run receipts with full step data, scope snapshot, and evidence manifest. Stores in MinIO. |
+| **Governance** | ReceiptAgent | Generates HMAC-SHA256 signed, tamper-evident run receipts with full step data, scope snapshot, and evidence manifest. Stores in MinIO. Generates findings when receipts are unsigned or signing fails. |
 | **Emulation** | Planner | Loads validation playbooks from YAML, filters by allowed tiers, generates ordered step list. |
 | **Emulation** | Executor | Executes playbook steps in-process with real operations (SIEM queries, EDR health checks, EICAR marker files, allowlisted commands, detection verification, cleanup checks). gVisor sandboxing planned. |
 | **Emulation** | EvidenceAgent | Captures execution artifacts as JSON and uploads to MinIO evidence vault. |
 | **Validation** | TelemetryVerifier | Queries SIEM/EDR connectors for expected telemetry matching the executed technique. |
 | **Validation** | DetectionEvaluator | Queries EDR for alerts, measures detection latency, generates detection gap findings. |
-| **Validation** | ResponseAutomator | Creates ITSM tickets for findings, sends notifications via Teams/Slack connectors. |
+| **Validation** | ResponseAutomator | Creates ITSM tickets for findings (with input sanitization against injection), sends notifications via Teams/Slack connectors. |
 | **Improvement** | CoverageMapper | Upserts ATT&CK coverage entries from validation results, computes coverage percentage. |
 | **Improvement** | DriftAgent | Compares post-run coverage against pre-run snapshot, generates drift findings for regressions. |
-| **Improvement** | RegressionAgent | Compares findings between the current run and previous runs, detects new regressions. |
+| **Improvement** | RegressionAgent | Compares findings between the current run and previous runs using composite fingerprinting (title+severity+technique IDs), detects new regressions. |
 
 ### Agent Dependency Injection
 
@@ -165,8 +165,8 @@ Phase 1 — Planning
      └─► Maps engagement ConnectorIDs to category buckets (siem, edr, itsm, notification)
 
 Phase 2 — Per-step execution (for each planned step)
-  a. PolicyEnforcer → validates against scope/tier/allowlist
-  b. ApprovalGate → blocks for human decision (Tier 2+ only)
+  a. PolicyEnforcer → validates against scope/tier/allowlist (fail-closed: missing context = blocked)
+  b. ApprovalGate → blocks for human decision (Tier 2+ only, approval expiry re-verified at execution)
   c. Executor → runs the playbook step, captures results
   d. EvidenceAgent → uploads execution artifacts to MinIO
   e. TelemetryVerifier → queries SIEM/EDR for expected telemetry

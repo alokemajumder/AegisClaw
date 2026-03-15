@@ -1,6 +1,6 @@
 # AegisClaw — Implementation Progress
 
-> Last updated: 2026-03-14 (Session 8)
+> Last updated: 2026-03-15 (Session 9)
 
 ---
 
@@ -376,6 +376,43 @@
 - [x] Accessibility: `aria-label` attributes on back buttons, sidebar toggle, notification bell
 - [x] Documentation accuracy audit: README, architecture.md, security-model.md, deployment.md, CONTRIBUTING.md — corrected table/endpoint/playbook counts, removed claims about unimplemented features (PDF export, gVisor, OpenAPI spec, SSO)
 
+### Agent Security Audit & Fix (Session 9)
+
+Comprehensive security audit of all 12 agents identified and fixed 22 findings (1 critical, 9 high, 10 medium, 2 low):
+
+**Critical:**
+- [x] PolicyEnforcer fail-closed: blocks all actions when PolicyContext is nil (was silently passing through)
+
+**High:**
+- [x] PolicyEnforcer made mandatory in RunEngine — step blocked if agent missing or fails
+- [x] RunEngine handles nil results from PolicyEnforcer with fail-closed semantics
+- [x] Command allowlist PATH traversal prevention (`filepath.Base()` resolves absolute paths to base names)
+- [x] Command allowlist argument injection prevention (rejects all arguments)
+- [x] Marker file path validation — `verify_cleanup` restricts deletions to `aegisclaw-marker-*` under `os.TempDir()`
+- [x] Approval expiry re-verification — orchestrator checks approval record expiry and status before executing approved steps
+- [x] RunEngine error handling — all agent `HandleTask` calls now handle nil results and errors with fail-closed semantics
+- [x] ApprovalGate error handling — was silently discarding errors
+- [x] Planner fallback plan now filters steps by allowed tiers from PolicyContext
+
+**Medium:**
+- [x] ITSM ticket field sanitization — control characters stripped, length truncated (title: 200, desc: 4000, severity: 20)
+- [x] Regression finding fingerprinting uses composite key (title+severity+technique_ids) instead of title alone
+- [x] ReceiptAgent generates medium-severity finding when receipt is unsigned
+- [x] ReceiptAgent generates high-severity finding when signing fails
+- [x] TelemetryVerifier returns honest empty sources when no connectors queried (was fabricating `["siem", "edr"]`)
+- [x] EvidenceAgent error handling in RunEngine (was silently discarded)
+- [x] TelemetryVerifier error handling in RunEngine (was silently discarded)
+- [x] DetectionEvaluator error handling in RunEngine (was silently discarded)
+- [x] JSON unmarshal errors now checked instead of discarded with `_ =`
+- [x] Post-run agent registration errors now logged (ResponseAutomator, CoverageMapper, DriftAgent, RegressionAgent, ReceiptAgent)
+
+**Low:**
+- [x] Receipt `sign()` method checks `mac.Write()` error return
+- [x] PolicyEnforcer tier check ordering: Tier 3 blocked first, then tier-allowed, then allowlist
+
+**Files changed:** 11 files, +418/-155 lines
+**Commit:** `c79a05c` — pushed to main
+
 ### Runner Sandboxing
 
 - [ ] gVisor sandbox for Tier 2-3 runner isolation
@@ -484,9 +521,9 @@
 |-------|-------|-----------|-----------|
 | Phase 0 — Scaffold | 32 | 32 | 0 |
 | Phase 1 — MVP | 98 | 98 | 0 |
-| Phase 2 — Production | 184 | 152 | 32 |
-| **Total** | **314** | **282** | **32** |
+| Phase 2 — Production | 206 | 174 | 32 |
+| **Total** | **336** | **304** | **32** |
 
 **Phase 1 COMPLETE.** All 13 blocks done. End-to-end flow works: Create Asset → Create Engagement → Trigger Run → Findings → Report.
 
-**Phase 2 Progress:** Full 12-agent pipeline audited and wired into 3-phase RunEngine (plan → per-step → post-run). HMAC-SHA256 receipt signing via `internal/receipt.Generator`. PolicyEnforcer allowlist enforcement for Tier 1+. Pre-run coverage snapshots for drift detection. Connector resolution by category. All simulated/fake fallback data removed. Full CLI. 13 playbooks (4 Tier 0 + 6 Tier 1 + 3 Tier 2) + playbook schema. 4 detail pages with inline edit. **161 test functions, 400 test cases, 0 failures across 16 packages.** Production hardening: 7 deployment blockers fixed, JWT validation + token blacklisting (DB-persisted), auth middleware + rate limiting + account lockout (DB-persisted), JSON injection fix, tenant isolation (30 handlers), RBAC enforcement on all route groups (viewer=GET, operator/admin=mutate, approver=approve), Docker Compose hardened (resource limits, env var substitution, health checks on all 16 services), kill switch persistence, graceful shutdown timeouts, pagination bug fixes, dashboard aggregate queries, stub elimination (3 handlers), Prometheus metrics middleware, configurable trace sampling, API retry with backoff, `.env.example` with 50+ documented variables. Production-grade audit: login token field alignment, cross-tenant escalation fix, JWT cookie Secure flag, real playbook execution (SIEM queries, EDR health, EICAR markers, command allowlist, detection verification, cleanup checks), approval resume via NATS, secret_ref resolution from env vars, circuit breakers on all connector calls, 12 silent error discards fixed, frontend contract alignment (dashboard fields, health endpoint, user name, activity feed). Migration 000003: token_blacklist + login_attempts tables. All documentation verified against codebase.
+**Phase 2 Progress:** Agent security audit completed — 22 findings fixed across all 12 agents with fail-closed enforcement, PATH traversal prevention, ITSM injection protection, approval expiry verification, and honest telemetry reporting. Full 12-agent pipeline audited and wired into 3-phase RunEngine (plan → per-step → post-run). HMAC-SHA256 receipt signing via `internal/receipt.Generator`. PolicyEnforcer allowlist enforcement for Tier 1+. Pre-run coverage snapshots for drift detection. Connector resolution by category. All simulated/fake fallback data removed. Full CLI. 13 playbooks (4 Tier 0 + 6 Tier 1 + 3 Tier 2) + playbook schema. 4 detail pages with inline edit. **161 test functions, 400 test cases, 0 failures across 16 packages.** Production hardening: 7 deployment blockers fixed, JWT validation + token blacklisting (DB-persisted), auth middleware + rate limiting + account lockout (DB-persisted), JSON injection fix, tenant isolation (30 handlers), RBAC enforcement on all route groups (viewer=GET, operator/admin=mutate, approver=approve), Docker Compose hardened (resource limits, env var substitution, health checks on all 16 services), kill switch persistence, graceful shutdown timeouts, pagination bug fixes, dashboard aggregate queries, stub elimination (3 handlers), Prometheus metrics middleware, configurable trace sampling, API retry with backoff, `.env.example` with 50+ documented variables. Production-grade audit: login token field alignment, cross-tenant escalation fix, JWT cookie Secure flag, real playbook execution (SIEM queries, EDR health, EICAR markers, command allowlist, detection verification, cleanup checks), approval resume via NATS, secret_ref resolution from env vars, circuit breakers on all connector calls, 12 silent error discards fixed, frontend contract alignment (dashboard fields, health endpoint, user name, activity feed). Migration 000003: token_blacklist + login_attempts tables. All documentation verified against codebase.
