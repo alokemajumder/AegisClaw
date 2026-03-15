@@ -112,7 +112,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
         continue;
       }
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `API error: ${res.status}`);
+      throw new Error(body.error?.message || body.error?.code || (typeof body.error === 'string' ? body.error : null) || `API error: ${res.status}`);
     }
 
     return res.json();
@@ -342,7 +342,7 @@ export async function listEngagementRuns(engagementId: string, page = 1, perPage
 
 // Run receipt
 export async function getRunReceipt(runId: string) {
-  return apiFetch<ApiResponse<{ receipt_hash: string; receipt_url: string }>>(`/api/v1/runs/${runId}/receipt`);
+  return apiFetch<ApiResponse<{ receipt_id: string; run_id: string }>>(`/api/v1/runs/${runId}/receipt`);
 }
 
 // Generic helper for compatibility

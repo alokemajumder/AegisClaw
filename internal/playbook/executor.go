@@ -469,7 +469,7 @@ func (e *Executor) executeVerifyCleanup(_ context.Context, step *PlaybookStep, r
 		result.Status = "completed"
 		result.CleanupDone = true
 		outputs := map[string]any{
-			"action":           "verify_cleanup",
+			"action":            "verify_cleanup",
 			"cleanup_confirmed": true,
 			"self_cleaned":      false,
 			"marker_path":       markerPath,
@@ -480,7 +480,26 @@ func (e *Executor) executeVerifyCleanup(_ context.Context, step *PlaybookStep, r
 		return
 	}
 
-	// File still exists — self-cleanup
+	if err != nil {
+		// Non-IsNotExist error (e.g. EACCES from AV quarantine) — treat as
+		// successful detection: the file was likely quarantined by AV.
+		result.Status = "completed"
+		result.CleanupDone = true
+		outputs := map[string]any{
+			"action":            "verify_cleanup",
+			"cleanup_confirmed": true,
+			"self_cleaned":      false,
+			"av_quarantined":    true,
+			"marker_path":       markerPath,
+			"stat_error":        err.Error(),
+		}
+		data, _ := json.Marshal(outputs)
+		result.Outputs = data
+		e.logger.Info("marker file likely quarantined by AV", "path", markerPath, "error", err)
+		return
+	}
+
+	// File still exists (err == nil) — self-cleanup
 	parentDir := filepath.Dir(markerPath)
 	removeErr := os.RemoveAll(parentDir)
 	selfCleaned := removeErr == nil

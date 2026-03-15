@@ -101,3 +101,64 @@ func (s *Service) Generate(ctx context.Context, orgID uuid.UUID, cfg ReportConfi
 	s.logger.Info("report generated", "id", report.ID, "type", cfg.Type, "format", cfg.Format)
 	return report, nil
 }
+
+// CreatePending creates a report record in "generating" status without doing any work.
+// This is used for async report generation where the caller returns immediately.
+func (s *Service) CreatePending(ctx context.Context, orgID uuid.UUID, cfg ReportConfig, userID *uuid.UUID) (*models.Report, error) {
+	report := &models.Report{
+		OrgID:       orgID,
+		Title:       cfg.Title,
+		ReportType:  string(cfg.Type),
+		Status:      "generating",
+		Format:      cfg.Format,
+		GeneratedBy: userID,
+	}
+	if err := s.reports.Create(ctx, report); err != nil {
+		return nil, fmt.Errorf("creating report record: %w", err)
+	}
+	return report, nil
+}
+
+// GenerateAsync performs report generation for an already-created report record.
+// It gathers data, renders the report, stores it, and updates the status.
+// Intended to be called in a goroutine after CreatePending.
+func (s *Service) GenerateAsync(ctx context.Context, report *models.Report, orgID uuid.UUID, cfg ReportConfig) error {
+	data, err := GatherData(ctx, orgID, s.findings, s.runs, s.coverage, s.assets)
+	if err != nil {
+		_ = s.reports.UpdateStatus(ctx, report.ID, "failed", "")
+		return fmt.Errorf("gathering report data: %w", err)
+	}
+
+	var content []byte
+	var contentType string
+	switch cfg.Format {
+	case "json":
+		content, err = RenderJSON(cfg, data)
+		contentType = "application/json"
+	default:
+		md := RenderMarkdown(cfg, data)
+		content = []byte(md)
+		contentType = "text/markdown"
+	}
+	if err != nil {
+		_ = s.reports.UpdateStatus(ctx, report.ID, "failed", "")
+		return fmt.Errorf("rendering report: %w", err)
+	}
+
+	storagePath := ""
+	if s.store != nil {
+		artifact, uploadErr := s.store.Upload(ctx, "reports", report.ID.String()+"."+cfg.Format, contentType, content)
+		if uploadErr != nil {
+			s.logger.Error("storing report", "error", uploadErr)
+		} else {
+			storagePath = artifact.ID
+		}
+	}
+
+	if err := s.reports.UpdateStatus(ctx, report.ID, "completed", storagePath); err != nil {
+		return fmt.Errorf("updating report status: %w", err)
+	}
+
+	s.logger.Info("async report generated", "id", report.ID, "type", cfg.Type, "format", cfg.Format)
+	return nil
+}

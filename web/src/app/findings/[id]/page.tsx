@@ -135,8 +135,8 @@ export default function FindingDetailPage({ params }: { params: Promise<{ id: st
           </div>
         </div>
         <div className="flex gap-2">
-          {finding.ticket_url && (
-            <a href={finding.ticket_url} target="_blank" rel="noopener noreferrer">
+          {(finding.ticket_url || (finding.metadata?.ticket_url as string)) && (
+            <a href={(finding.ticket_url || finding.metadata?.ticket_url) as string} target="_blank" rel="noopener noreferrer">
               <Button variant="outline" size="sm">
                 <ExternalLink className="h-4 w-4 mr-1" /> View Ticket
               </Button>
@@ -203,12 +203,12 @@ export default function FindingDetailPage({ params }: { params: Promise<{ id: st
           </Card>
         )}
 
-        {finding.evidence_refs && finding.evidence_refs.length > 0 && (
+        {finding.evidence_ids && finding.evidence_ids.length > 0 && (
           <Card>
             <CardHeader><CardTitle className="text-base">Evidence</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-1">
-                {finding.evidence_refs.map(e => (
+                {finding.evidence_ids.map(e => (
                   <div key={e} className="text-sm text-slate-600 font-mono">{e}</div>
                 ))}
               </div>

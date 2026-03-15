@@ -181,7 +181,7 @@ func main() {
 		}
 		fmt.Fprintf(w, `{"status":"ready","service":"api-gateway"}`)
 	})
-	r.Handle("/metrics", metrics.Handler())
+	// /metrics served on internal metrics port (not public API) — see below
 
 	// API v1 routes
 	r.Route("/api/v1", func(r chi.Router) {
@@ -304,6 +304,26 @@ func main() {
 		})
 	})
 
+	// Internal metrics server (unauthenticated but not on the public API port)
+	metricsPort := cfg.Observability.MetricsPort
+	if metricsPort == 0 {
+		metricsPort = 9102
+	}
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("/metrics", metrics.Handler())
+	metricsSrv := &http.Server{
+		Addr:         fmt.Sprintf(":%d", metricsPort),
+		Handler:      metricsMux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	go func() {
+		logger.Info("metrics server starting", "addr", metricsSrv.Addr)
+		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error("metrics server error", "error", err)
+		}
+	}()
+
 	addr := fmt.Sprintf(":%d", cfg.Server.APIPort)
 	srv := &http.Server{
 		Addr:         addr,
@@ -332,6 +352,9 @@ func main() {
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error("shutdown error", "error", err)
+	}
+	if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+		logger.Error("metrics server shutdown error", "error", err)
 	}
 
 	logger.Info("api-gateway stopped")

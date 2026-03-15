@@ -140,6 +140,9 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Revoke the old refresh token to prevent reuse
+	h.TokenSvc.Blacklist.Revoke(req.RefreshToken, claims.ExpiresAt.Time)
+
 	writeData(w, tokenResponse{
 		AccessToken:  accessToken,
 		RefreshToken: refreshToken,

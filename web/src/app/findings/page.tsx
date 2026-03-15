@@ -221,8 +221,8 @@ export default function FindingsPage() {
                             Create Ticket
                           </Button>
                         )}
-                        {finding.ticket_url && (
-                          <a href={finding.ticket_url} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">
+                        {(finding.ticket_url || (finding.metadata?.ticket_url as string)) && (
+                          <a href={(finding.ticket_url || finding.metadata?.ticket_url) as string} target="_blank" rel="noopener noreferrer" className="text-sm text-blue-600 hover:underline">
                             {finding.ticket_id}
                           </a>
                         )}

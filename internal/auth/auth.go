@@ -205,24 +205,24 @@ func (s *TokenService) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 		if authHeader == "" {
-			http.Error(w, `{"error":{"code":"unauthorized","message":"missing authorization header"}}`, http.StatusUnauthorized)
+			writeJSONError(w, http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"missing authorization header"}}`)
 			return
 		}
 
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 		if tokenStr == authHeader {
-			http.Error(w, `{"error":{"code":"unauthorized","message":"invalid authorization format"}}`, http.StatusUnauthorized)
+			writeJSONError(w, http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"invalid authorization format"}}`)
 			return
 		}
 
 		claims, err := s.ValidateToken(tokenStr)
 		if err != nil {
-			http.Error(w, `{"error":{"code":"unauthorized","message":"invalid token"}}`, http.StatusUnauthorized)
+			writeJSONError(w, http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"invalid token"}}`)
 			return
 		}
 
 		if s.Blacklist != nil && s.Blacklist.IsRevoked(tokenStr) {
-			http.Error(w, `{"error":{"code":"unauthorized","message":"token has been revoked"}}`, http.StatusUnauthorized)
+			writeJSONError(w, http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"token has been revoked"}}`)
 			return
 		}
 
@@ -248,16 +248,23 @@ func RequireRole(roles ...models.UserRole) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			claims, ok := UserFromContext(r.Context())
 			if !ok {
-				http.Error(w, `{"error":{"code":"unauthorized","message":"not authenticated"}}`, http.StatusUnauthorized)
+				writeJSONError(w, http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"not authenticated"}}`)
 				return
 			}
 
 			if !roleSet[claims.Role] {
-				http.Error(w, `{"error":{"code":"forbidden","message":"insufficient permissions"}}`, http.StatusForbidden)
+				writeJSONError(w, http.StatusForbidden, `{"error":{"code":"forbidden","message":"insufficient permissions"}}`)
 				return
 			}
 
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// writeJSONError writes a JSON error response with the correct Content-Type header.
+func writeJSONError(w http.ResponseWriter, statusCode int, body string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	w.Write([]byte(body))
 }

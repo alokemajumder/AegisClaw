@@ -134,7 +134,7 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-slate-900">Step {step.step_number}</span>
                       <Badge variant="outline" className="text-xs">{step.agent_type}</Badge>
-                      {step.technique_id && <Badge variant="outline" className="text-xs">{step.technique_id}</Badge>}
+                      {typeof step.inputs?.technique_id === "string" && <Badge variant="outline" className="text-xs">{step.inputs.technique_id}</Badge>}
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5">{step.status}</p>
                     {step.error_message && (

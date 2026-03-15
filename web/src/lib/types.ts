@@ -62,9 +62,7 @@ export interface Run {
   steps_total: number;
   started_at?: string;
   completed_at?: string;
-  triggered_by?: string;
-  receipt_hash?: string;
-  receipt_url?: string;
+  receipt_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -74,7 +72,6 @@ export interface RunStep {
   run_id: string;
   step_number: number;
   agent_type: string;
-  technique_id?: string;
   status: "pending" | "running" | "completed" | "failed" | "skipped";
   inputs?: Record<string, unknown>;
   outputs?: Record<string, unknown>;
@@ -95,7 +92,7 @@ export interface Finding {
   confidence: "high" | "medium" | "low";
   status: string;
   technique_ids: string[];
-  evidence_refs: string[];
+  evidence_ids: string[];
   remediation?: string;
   ticket_id?: string;
   ticket_url?: string;
@@ -190,6 +187,7 @@ export interface DashboardHealth {
   database: string;
   nats: string;
   kill_switch_engaged: boolean;
+  connectors?: Array<{ id: string; name: string; category: string; status: string; checked_at?: string }>;
 }
 
 export interface User {

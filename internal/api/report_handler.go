@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 
@@ -52,13 +53,24 @@ func (h *Handler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 			Type:   reporting.ReportType(req.ReportType),
 			Format: req.Format,
 		}
-		report, err := h.ReportSvc.Generate(r.Context(), claims.OrgID, cfg, &claims.UserID)
+
+		// Create the report record synchronously with "generating" status
+		report, err := h.ReportSvc.CreatePending(r.Context(), claims.OrgID, cfg, &claims.UserID)
 		if err != nil {
-			h.Logger.Error("generating report", "error", err)
-			writeError(w, http.StatusInternalServerError, "generation_error", "Failed to generate report")
+			h.Logger.Error("creating report record", "error", err)
+			writeError(w, http.StatusInternalServerError, "generation_error", "Failed to create report")
 			return
 		}
-		writeJSON(w, http.StatusCreated, models.APIResponse{Data: report})
+
+		// Run the actual generation asynchronously so we don't block the HTTP request
+		go func() {
+			if err := h.ReportSvc.GenerateAsync(context.Background(), report, claims.OrgID, cfg); err != nil {
+				h.Logger.Error("async report generation failed", "report_id", report.ID, "error", err)
+			}
+		}()
+
+		// Return 202 Accepted with the report ID — client can poll status
+		writeJSON(w, http.StatusAccepted, models.APIResponse{Data: report})
 		return
 	}
 

@@ -88,8 +88,10 @@ func (h *Handler) ApproveRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Publish approval-granted event so the orchestrator can resume the blocked step
-	if h.Publisher != nil && approval.TargetEntityID != nil {
+	// Publish approval-granted event so the orchestrator can resume the blocked step.
+	// Only process run-type approvals — other entity types don't need NATS dispatch.
+	if h.Publisher != nil && approval.TargetEntityID != nil &&
+		approval.TargetEntityType != nil && *approval.TargetEntityType == "run" {
 		runID := *approval.TargetEntityID
 		// Find the blocked step number from the run steps
 		steps, err := h.RunSteps.ListByRunID(r.Context(), runID)
@@ -109,6 +111,8 @@ func (h *Handler) ApproveRequest(w http.ResponseWriter, r *http.Request) {
 							h.Logger.Error("publishing approval granted event", "error", pubErr, "approval_id", id)
 						}
 					}
+					// Each approval targets one blocked step. Resume only the first
+					// blocked step found; additional blocked steps require separate approvals.
 					break
 				}
 			}

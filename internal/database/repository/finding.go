@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -155,6 +156,16 @@ func (r *FindingRepo) SetTicket(ctx context.Context, id uuid.UUID, ticketID stri
 		id, ticketID, connectorID)
 	if err != nil {
 		return fmt.Errorf("setting ticket: %w", err)
+	}
+	return nil
+}
+
+func (r *FindingRepo) UpdateMetadata(ctx context.Context, id uuid.UUID, metadata json.RawMessage) error {
+	_, err := r.q.Exec(ctx,
+		`UPDATE findings SET metadata = $2, updated_at = now() WHERE id = $1`,
+		id, metadata)
+	if err != nil {
+		return fmt.Errorf("updating finding metadata: %w", err)
 	}
 	return nil
 }

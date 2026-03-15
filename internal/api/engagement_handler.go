@@ -331,20 +331,8 @@ func (h *Handler) TriggerRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Publish run trigger via NATS
-	msg := natspkg.RunTriggerMsg{
-		EngagementID: eng.ID,
-		OrgID:        eng.OrgID,
-		TriggeredBy:  claims.UserID.String(),
-	}
-
-	if h.Publisher != nil {
-		if err := h.Publisher.Publish(r.Context(), natspkg.SubjectRunTrigger, eng.OrgID, msg); err != nil {
-			h.Logger.Error("publishing run trigger", "error", err)
-		}
-	}
-
-	// Create run record
+	// Create run record BEFORE publishing NATS message to avoid race
+	// where the orchestrator receives the message before the DB row exists.
 	maxTier := 0
 	for _, t := range eng.AllowedTiers {
 		if t > maxTier {
@@ -362,6 +350,19 @@ func (h *Handler) TriggerRun(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Error("creating run", "error", err)
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to create run")
 		return
+	}
+
+	// Publish run trigger via NATS after DB record exists
+	msg := natspkg.RunTriggerMsg{
+		EngagementID: eng.ID,
+		OrgID:        eng.OrgID,
+		TriggeredBy:  claims.UserID.String(),
+	}
+
+	if h.Publisher != nil {
+		if err := h.Publisher.Publish(r.Context(), natspkg.SubjectRunTrigger, eng.OrgID, msg); err != nil {
+			h.Logger.Error("publishing run trigger", "error", err)
+		}
 	}
 
 	writeJSON(w, http.StatusCreated, models.APIResponse{Data: run})

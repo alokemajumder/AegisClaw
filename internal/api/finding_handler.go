@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
@@ -182,6 +183,17 @@ func (h *Handler) CreateFindingTicket(w http.ResponseWriter, r *http.Request) {
 	if err := h.Findings.SetTicket(r.Context(), id, result.TicketID, connectorID); err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to save ticket reference")
 		return
+	}
+
+	// Store ticket_url in finding metadata so it persists for future reads
+	if result.TicketURL != "" {
+		meta := map[string]any{}
+		if finding.Metadata != nil {
+			_ = json.Unmarshal(finding.Metadata, &meta)
+		}
+		meta["ticket_url"] = result.TicketURL
+		metaBytes, _ := json.Marshal(meta)
+		_ = h.Findings.UpdateMetadata(r.Context(), id, metaBytes)
 	}
 
 	writeData(w, map[string]string{"ticket_id": result.TicketID, "ticket_url": result.TicketURL, "status": "ticketed"})
