@@ -15,6 +15,7 @@ type Config struct {
 	NATS          NATSConfig          `mapstructure:"nats"`
 	MinIO         MinIOConfig         `mapstructure:"minio"`
 	Ollama        OllamaConfig        `mapstructure:"ollama"`
+	NVIDIANIMM    NVIDIANIMConfig     `mapstructure:"nvidia_nim"`
 	Auth          AuthConfig          `mapstructure:"auth"`
 	Policy        PolicyConfig        `mapstructure:"policy"`
 	Observability ObservabilityConfig `mapstructure:"observability"`
@@ -71,6 +72,18 @@ type OllamaConfig struct {
 	URL            string   `mapstructure:"url"`
 	DefaultModel   string   `mapstructure:"default_model"`
 	ModelAllowlist []string `mapstructure:"model_allowlist"`
+	TimeoutSeconds int      `mapstructure:"timeout_seconds"`
+}
+
+// NVIDIANIMConfig holds NVIDIA NIM / NeMoClaw configuration.
+// When enabled, NIM is used as the primary LLM backend (with Ollama as fallback).
+type NVIDIANIMConfig struct {
+	Enabled        bool     `mapstructure:"enabled"`
+	URL            string   `mapstructure:"url"`             // NIM API endpoint (e.g. https://integrate.api.nvidia.com/v1)
+	APIKey         string   `mapstructure:"api_key"`         // NVIDIA API key (required for cloud, optional for self-hosted)
+	APIKeyRef      string   `mapstructure:"api_key_ref"`     // Environment variable holding the API key
+	DefaultModel   string   `mapstructure:"default_model"`   // e.g. nvidia/nemotron-4-340b-instruct
+	ModelAllowlist []string `mapstructure:"model_allowlist"` // Allowed NIM models
 	TimeoutSeconds int      `mapstructure:"timeout_seconds"`
 }
 
@@ -133,6 +146,10 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ollama.url", "http://localhost:11434")
 	v.SetDefault("ollama.default_model", "llama3.1")
 	v.SetDefault("ollama.timeout_seconds", 120)
+	v.SetDefault("nvidia_nim.enabled", false)
+	v.SetDefault("nvidia_nim.url", "https://integrate.api.nvidia.com/v1")
+	v.SetDefault("nvidia_nim.default_model", "nvidia/nemotron-4-340b-instruct")
+	v.SetDefault("nvidia_nim.timeout_seconds", 120)
 	v.SetDefault("auth.token_expiry", "15m")
 	v.SetDefault("auth.refresh_expiry", "7d")
 	v.SetDefault("auth.receipt_hmac_key", "dev-receipt-key-change-in-production")

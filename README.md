@@ -86,12 +86,15 @@ All 12 agents are wired into a 3-phase `RunEngine` pipeline that executes end-to
 - Persistent token blacklist and login lockout (PostgreSQL-backed, survives restarts, multi-instance safe)
 - Pre-run coverage snapshots for drift detection
 
-### Local LLM Reasoning (Ollama)
+### LLM Reasoning (Ollama + NVIDIA NIM)
 - Exposure graph analysis and validation planning
 - Evidence-anchored findings (anti-hallucination enforcement)
 - Finding deduplication and root-cause clustering
 - Remediation drafting with stack-specific guidance
-- All reasoning stays within your network — no external data egress
+- **Dual LLM backend support**:
+  - **Ollama** (default) — Local inference, air-gap capable, no external dependency
+  - **NVIDIA NIM / NeMoClaw** (optional) — High-performance inference via NVIDIA API Catalog, self-hosted DGX/DGX Spark/DGX Station, or NeMoClaw runtime. OpenAI-compatible API with models like Nemotron, Llama 3.1, DeepSeek R1, Mixtral
+- All reasoning stays within your network — no external data egress (Ollama mode), or within your NVIDIA infrastructure (NIM self-hosted mode)
 
 ### Settings-Driven Connector System
 - Fully configurable via UI/API — add and manage connectors without code changes
@@ -103,18 +106,18 @@ All 12 agents are wired into a 3-phase `RunEngine` pipeline that executes end-to
 | Category | Connector | Status |
 |----------|-----------|--------|
 | **SIEM** | Microsoft Sentinel | Available |
+| **SIEM** | Splunk Enterprise/Cloud | Available |
+| **SIEM** | Elastic Security | Available |
 | **EDR/XDR** | Microsoft Defender for Endpoint | Available |
+| **EDR/XDR** | CrowdStrike Falcon | Available |
 | **ITSM** | ServiceNow | Available |
+| **ITSM** | Jira Service Management | Available |
 | **Notifications** | Microsoft Teams (Webhook) | Available |
 | **Notifications** | Slack (Webhook) | Available |
-| **SIEM** | Splunk | Planned |
-| **SIEM** | Elastic Security | Planned |
-| **EDR/XDR** | CrowdStrike Falcon | Planned |
-| **ITSM** | Jira Service Management | Planned |
-| **Identity** | Microsoft Entra ID | Planned |
-| **Identity** | Okta | Planned |
+| **Identity** | Microsoft Entra ID | Available |
+| **Identity** | Okta | Available |
 
-The connector registry pre-seeds 10 connector types (sentinel, defender, entraid, servicenow, teams, slack, splunk, elastic, crowdstrike, jira, okta). Additional connectors can be built using the [Connector SDK](docs/connector-development.md).
+All 11 connector types are fully implemented with real API integrations: OAuth2/Basic auth, token caching, health checks, credential validation, and circuit-breaker protection. Additional connectors can be built using the [Connector SDK](docs/connector-development.md).
 
 ### CISO-Ready Reporting
 - **Executive report**: Posture overview, top gaps, drift trends, SLA adherence
@@ -202,7 +205,7 @@ See the [Deployment Guide](docs/deployment.md) for production deployment, Kubern
 | Database | PostgreSQL 16 |
 | Message Broker | NATS + JetStream |
 | Blob Storage | MinIO (S3-compatible) |
-| LLM | Ollama (local inference) |
+| LLM | Ollama (local) or NVIDIA NIM/NeMoClaw (high-performance) |
 | Runner Sandbox | In-process (gVisor planned for Phase 2) |
 | Observability | OpenTelemetry, Prometheus, Grafana, Jaeger |
 
@@ -374,7 +377,7 @@ make test
 - [x] Composite finding fingerprinting for regression analysis
 - [x] Honest telemetry (no fabricated sources when connectors unavailable)
 - [ ] gVisor runner sandboxing
-- [ ] Additional connectors (Entra ID, Splunk, Elastic, CrowdStrike, Jira, Okta)
+- [x] All 11 connectors implemented: Sentinel, Splunk, Elastic, Defender, CrowdStrike, ServiceNow, Jira, Teams, Slack, Entra ID, Okta
 - [ ] PDF report renderer
 - [ ] WebSocket/SSE real-time updates
 - [ ] Kubernetes Helm chart

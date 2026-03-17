@@ -45,7 +45,7 @@ func main() {
 		allowedModels = []string{"llama3.2", "mistral", "codellama", "phi3"}
 	}
 
-	// Create Ollama client.
+	// Create Ollama client (always available as fallback).
 	client := ollama.NewClient(
 		cfg.Ollama.URL,
 		cfg.Ollama.TimeoutSeconds,
@@ -53,18 +53,64 @@ func main() {
 		logger,
 	)
 
-	// Check connectivity.
+	// NVIDIA NIM — optional high-performance LLM backend.
+	// When enabled, NIM is the primary backend with Ollama as fallback.
+	var nimClient *ollama.NIMClient
+	if cfg.NVIDIANIMM.Enabled {
+		nimAPIKey := cfg.NVIDIANIMM.APIKey
+		if nimAPIKey == "" && cfg.NVIDIANIMM.APIKeyRef != "" {
+			nimAPIKey = os.Getenv(cfg.NVIDIANIMM.APIKeyRef)
+		}
+
+		nimModels := cfg.NVIDIANIMM.ModelAllowlist
+		if len(nimModels) == 0 {
+			nimModels = []string{
+				"nvidia/nemotron-4-340b-instruct",
+				"nvidia/llama-3.1-nemotron-70b-instruct",
+				"meta/llama-3.1-405b-instruct",
+				"meta/llama-3.1-70b-instruct",
+				"mistralai/mixtral-8x22b-instruct-v0.1",
+				"deepseek-ai/deepseek-r1",
+			}
+		}
+
+		nimClient = ollama.NewNIMClient(
+			cfg.NVIDIANIMM.URL,
+			nimAPIKey,
+			cfg.NVIDIANIMM.TimeoutSeconds,
+			nimModels,
+			logger,
+		)
+
+		if nimClient.IsAvailable(ctx) {
+			logger.Info("NVIDIA NIM is available (primary LLM backend)",
+				"url", cfg.NVIDIANIMM.URL,
+				"default_model", cfg.NVIDIANIMM.DefaultModel,
+			)
+		} else {
+			logger.Warn("NVIDIA NIM enabled but not reachable — falling back to Ollama",
+				"url", cfg.NVIDIANIMM.URL,
+			)
+		}
+	}
+
+	// Check Ollama connectivity.
 	if client.IsAvailable(ctx) {
 		logger.Info("ollama service is available", "url", cfg.Ollama.URL)
 	} else {
-		logger.Warn("ollama service is not available (agents will use deterministic fallback)",
-			"url", cfg.Ollama.URL)
+		if nimClient == nil {
+			logger.Warn("ollama service is not available (agents will use deterministic fallback)",
+				"url", cfg.Ollama.URL)
+		} else {
+			logger.Info("ollama unavailable but NIM is configured as primary backend")
+		}
 	}
 
-	logger.Info("ollama configuration",
-		"url", cfg.Ollama.URL,
-		"default_model", cfg.Ollama.DefaultModel,
-		"timeout_seconds", cfg.Ollama.TimeoutSeconds,
+	logger.Info("LLM configuration",
+		"ollama_url", cfg.Ollama.URL,
+		"ollama_default_model", cfg.Ollama.DefaultModel,
+		"nvidia_nim_enabled", cfg.NVIDIANIMM.Enabled,
+		"nvidia_nim_url", cfg.NVIDIANIMM.URL,
 		"allowed_models", allowedModels,
 	)
 
@@ -85,11 +131,17 @@ func main() {
 	})
 	healthMux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		if client.IsAvailable(context.Background()) {
-			fmt.Fprintf(w, `{"status":"ready","service":"ollama-bridge"}`)
+		ollamaReady := client.IsAvailable(context.Background())
+		nimReady := nimClient != nil && nimClient.IsAvailable(context.Background())
+		if ollamaReady || nimReady {
+			backend := "ollama"
+			if nimReady {
+				backend = "nvidia_nim"
+			}
+			fmt.Fprintf(w, `{"status":"ready","service":"ollama-bridge","backend":"%s"}`, backend)
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"not_ready","service":"ollama-bridge","error":"ollama unavailable"}`)
+			fmt.Fprintf(w, `{"status":"not_ready","service":"ollama-bridge","error":"no LLM backend available"}`)
 		}
 	})
 	healthServer := &http.Server{

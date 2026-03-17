@@ -13,12 +13,18 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/alokemajumder/AegisClaw/connectors/edr/crowdstrike"
 	"github.com/alokemajumder/AegisClaw/connectors/edr/defender"
+	"github.com/alokemajumder/AegisClaw/connectors/identity/entraid"
+	"github.com/alokemajumder/AegisClaw/connectors/identity/okta"
 	"github.com/alokemajumder/AegisClaw/internal/grpcutil"
+	"github.com/alokemajumder/AegisClaw/connectors/itsm/jira"
 	"github.com/alokemajumder/AegisClaw/connectors/itsm/servicenow"
 	"github.com/alokemajumder/AegisClaw/connectors/notifications/slack"
 	"github.com/alokemajumder/AegisClaw/connectors/notifications/teams"
+	"github.com/alokemajumder/AegisClaw/connectors/siem/elastic"
 	"github.com/alokemajumder/AegisClaw/connectors/siem/sentinel"
+	"github.com/alokemajumder/AegisClaw/connectors/siem/splunk"
 	"github.com/alokemajumder/AegisClaw/internal/config"
 	"github.com/alokemajumder/AegisClaw/internal/connector"
 	"github.com/alokemajumder/AegisClaw/internal/database"
@@ -51,10 +57,16 @@ func main() {
 	// Register all connector factories
 	registry := connectorsdk.NewRegistry()
 	_ = registry.Register("sentinel", func() connectorsdk.Connector { return sentinel.New() })
+	_ = registry.Register("splunk", func() connectorsdk.Connector { return splunk.New() })
+	_ = registry.Register("elastic", func() connectorsdk.Connector { return elastic.New() })
 	_ = registry.Register("defender", func() connectorsdk.Connector { return defender.New() })
+	_ = registry.Register("crowdstrike", func() connectorsdk.Connector { return crowdstrike.New() })
 	_ = registry.Register("servicenow", func() connectorsdk.Connector { return servicenow.New() })
+	_ = registry.Register("jira", func() connectorsdk.Connector { return jira.New() })
 	_ = registry.Register("teams", func() connectorsdk.Connector { return teams.New() })
 	_ = registry.Register("slack", func() connectorsdk.Connector { return slack.New() })
+	_ = registry.Register("entraid", func() connectorsdk.Connector { return entraid.New() })
+	_ = registry.Register("okta", func() connectorsdk.Connector { return okta.New() })
 
 	logger.Info("connector registry initialized", "types", registry.ListTypes())
 

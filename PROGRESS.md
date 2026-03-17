@@ -254,13 +254,15 @@
 - [x] ServiceNow connector: Real ServiceNow REST API calls *(completed — moved to Phase 1 Block 6)*
 - [x] Teams connector: Real webhook with health check + credential validation *(completed — moved to Phase 1 Block 6)*
 - [x] Slack connector: Real webhook with health check + credential validation *(completed — moved to Phase 1 Block 6)*
-- [ ] Add Entra ID connector (Identity)
-- [ ] Add Splunk connector (SIEM)
-- [ ] Add Elastic Security connector (SIEM)
+- [x] Add Splunk connector (SIEM) — SPL search via oneshot export, NDJSON parsing, token+basic auth, TLS config
+- [x] Add Elastic Security connector (SIEM) — Elasticsearch _search API, query_string queries, API key+basic auth, cluster health
+- [x] Add CrowdStrike Falcon connector (EDR) — OAuth2, detections query+detail, hosts/devices, FQL filter
+- [x] Add Jira Service Management connector (ITSM) — REST API v3, ADF descriptions, transitions API, issue CRUD
+- [x] Add Okta connector (Identity) — SSWS auth, users API, System Log events, search filters
+- [x] Add Entra ID connector (Identity) — OAuth2 via Microsoft Graph, users, sign-in logs, risk detection
+- [x] Migration 000004: Update connector_registry status from 'beta' to 'available'
 - [ ] Add IBM QRadar connector (SIEM)
-- [ ] Add CrowdStrike connector (EDR)
 - [ ] Add SentinelOne connector (EDR)
-- [ ] Add Jira connector (ITSM)
 - [ ] Add PagerDuty connector (Notifications)
 
 ### Agent Deep Wiring

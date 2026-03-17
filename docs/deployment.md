@@ -194,6 +194,20 @@ ollama:
     - mistral
   timeout_seconds: 120
 
+# NVIDIA NIM — optional high-performance LLM backend (alternative to Ollama)
+# Enable for NVIDIA API Catalog, self-hosted DGX/DGX Spark, or NeMoClaw runtime
+nvidia_nim:
+  enabled: false
+  url: https://integrate.api.nvidia.com/v1   # Cloud API, or http://localhost:8000/v1 for self-hosted
+  api_key_ref: AEGISCLAW_NVIDIA_NIM_API_KEY  # Environment variable holding the API key
+  default_model: nvidia/nemotron-4-340b-instruct
+  model_allowlist:
+    - nvidia/nemotron-4-340b-instruct
+    - nvidia/llama-3.1-nemotron-70b-instruct
+    - meta/llama-3.1-405b-instruct
+    - deepseek-ai/deepseek-r1
+  timeout_seconds: 120
+
 auth:
   jwt_secret: dev-secret-change-in-production
   token_expiry: 15m
@@ -220,6 +234,7 @@ observability:
 | `nats`          | NATS URL, reconnect behavior                                     |
 | `minio`         | MinIO/S3 endpoint, credentials, bucket name                      |
 | `ollama`        | Ollama URL, default model, model allowlist, timeout               |
+| `nvidia_nim`    | NVIDIA NIM endpoint, API key, model allowlist (optional, alternative to Ollama) |
 | `server`        | API port, gRPC port, CORS origins, playbook directory             |
 | `policy`        | Default playbook pack, rate limits, concurrency cap               |
 | `observability` | OTEL tracing endpoint, Prometheus metrics port, log level         |
