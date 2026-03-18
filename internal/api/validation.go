@@ -2,10 +2,34 @@ package api
 
 import (
 	"fmt"
+	"net/mail"
 	"strings"
 
 	"github.com/alokemajumder/AegisClaw/internal/models"
 )
+
+func validateEmail(email string) error {
+	if _, err := mail.ParseAddress(email); err != nil {
+		return fmt.Errorf("invalid email address: %s", email)
+	}
+	return nil
+}
+
+func validateAuthMethod(m string) error {
+	switch m {
+	case "api_key", "oauth2", "service_principal", "certificate", "basic", "token", "webhook":
+		return nil
+	}
+	return fmt.Errorf("invalid auth method: %s (allowed: api_key, oauth2, service_principal, certificate, basic, token, webhook)", m)
+}
+
+func validateUserRole(r string) error {
+	switch models.UserRole(r) {
+	case models.RoleAdmin, models.RoleOperator, models.RoleViewer, models.RoleApprover:
+		return nil
+	}
+	return fmt.Errorf("invalid role: %s (allowed: admin, operator, viewer, approver)", r)
+}
 
 func validateAssetType(t string) error {
 	switch models.AssetType(t) {

@@ -84,6 +84,11 @@ func main() {
 			fmt.Fprintf(w, `{"status":"not_ready","service":"scheduler","error":"database: %s"}`, err.Error())
 			return
 		}
+		if err := nc.HealthCheck(); err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, `{"status":"not_ready","service":"scheduler","error":"nats: %s"}`, err.Error())
+			return
+		}
 		fmt.Fprintf(w, `{"status":"ready","service":"scheduler"}`)
 	})
 	healthServer := &http.Server{

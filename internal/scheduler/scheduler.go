@@ -103,20 +103,33 @@ func (s *Scheduler) triggerRun(engagementID, orgID uuid.UUID) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
 	msg := natspkg.RunTriggerMsg{
 		EngagementID: engagementID,
 		TriggeredBy:  "scheduler",
 	}
 
-	if err := s.publisher.Publish(ctx, natspkg.SubjectRunTrigger, orgID, msg); err != nil {
-		s.logger.Error("failed to publish run trigger", "engagement_id", engagementID, "error", err)
-		return
+	// Retry up to 3 times with exponential backoff to handle transient NATS failures.
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second // 1s, 2s
+			time.Sleep(backoff)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		lastErr = s.publisher.Publish(ctx, natspkg.SubjectRunTrigger, orgID, msg)
+		cancel()
+
+		if lastErr == nil {
+			s.logger.Info("triggered scheduled run", "engagement_id", engagementID)
+			return
+		}
+		s.logger.Warn("failed to publish run trigger, retrying",
+			"engagement_id", engagementID, "attempt", attempt+1, "error", lastErr)
 	}
 
-	s.logger.Info("triggered scheduled run", "engagement_id", engagementID)
+	s.logger.Error("failed to publish run trigger after retries",
+		"engagement_id", engagementID, "attempts", 3, "error", lastErr)
 }
 
 func (s *Scheduler) reloadLoop(ctx context.Context) {

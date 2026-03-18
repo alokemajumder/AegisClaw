@@ -73,8 +73,16 @@ func (h *Handler) DashboardActivity(w http.ResponseWriter, r *http.Request) {
 	claims, _ := claimsFromRequest(r)
 	p := models.PaginationParams{Page: 1, PerPage: 20}
 
-	runs, _, _ := h.Runs.ListByOrgID(r.Context(), claims.OrgID, p, "")
-	findings, _, _ := h.Findings.ListByOrgID(r.Context(), claims.OrgID, p, "", "")
+	runs, _, err := h.Runs.ListByOrgID(r.Context(), claims.OrgID, p, "")
+	if err != nil {
+		h.Logger.Error("dashboard activity: listing runs", "error", err)
+		runs = nil
+	}
+	findings, _, err := h.Findings.ListByOrgID(r.Context(), claims.OrgID, p, "", "")
+	if err != nil {
+		h.Logger.Error("dashboard activity: listing findings", "error", err)
+		findings = nil
+	}
 
 	writeData(w, map[string]any{
 		"recent_runs":     runs,

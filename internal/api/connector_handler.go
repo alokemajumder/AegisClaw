@@ -79,6 +79,10 @@ func (h *Handler) CreateConnectorInstance(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
+	if err := validateAuthMethod(req.AuthMethod); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
 
 	if req.Config == nil {
 		req.Config = json.RawMessage(`{}`)
@@ -194,6 +198,10 @@ func (h *Handler) UpdateConnectorInstance(w http.ResponseWriter, r *http.Request
 		ci.Config = req.Config
 	}
 	if req.AuthMethod != nil {
+		if err := validateAuthMethod(*req.AuthMethod); err != nil {
+			writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+			return
+		}
 		ci.AuthMethod = *req.AuthMethod
 	}
 	if req.SecretRef != nil {

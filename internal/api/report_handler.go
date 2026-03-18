@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/alokemajumder/AegisClaw/internal/models"
 	"github.com/alokemajumder/AegisClaw/internal/reporting"
@@ -62,9 +63,12 @@ func (h *Handler) GenerateReport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Run the actual generation asynchronously so we don't block the HTTP request
+		// Run the actual generation asynchronously with a 5-minute timeout
+		// to prevent goroutine leaks if MinIO or the database hangs.
 		go func() {
-			if err := h.ReportSvc.GenerateAsync(context.Background(), report, claims.OrgID, cfg); err != nil {
+			genCtx, genCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+			defer genCancel()
+			if err := h.ReportSvc.GenerateAsync(genCtx, report, claims.OrgID, cfg); err != nil {
 				h.Logger.Error("async report generation failed", "report_id", report.ID, "error", err)
 			}
 		}()

@@ -179,6 +179,13 @@ func main() {
 			fmt.Fprintf(w, `{"status":"not_ready","service":"api-gateway","error":"database: %s"}`, err.Error())
 			return
 		}
+		if natsClient != nil {
+			if err := natsClient.HealthCheck(); err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprintf(w, `{"status":"not_ready","service":"api-gateway","error":"nats: %s"}`, err.Error())
+				return
+			}
+		}
 		fmt.Fprintf(w, `{"status":"ready","service":"api-gateway"}`)
 	})
 	// /metrics served on internal metrics port (not public API) — see below

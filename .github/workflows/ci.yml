@@ -44,6 +44,7 @@ jobs:
         image: nats:2.10
         ports:
           - 4222:4222
+        options: --jetstream
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

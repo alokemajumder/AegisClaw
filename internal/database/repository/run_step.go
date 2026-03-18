@@ -76,12 +76,18 @@ func (r *RunStepRepo) UpdateStatus(ctx context.Context, id uuid.UUID, status mod
 		_, err := r.q.Exec(ctx,
 			`UPDATE run_steps SET status = $2, started_at = $3 WHERE id = $1`,
 			id, status, now)
-		return err
+		if err != nil {
+			return fmt.Errorf("updating step to running: %w", err)
+		}
+		return nil
 	default:
 		_, err := r.q.Exec(ctx,
 			`UPDATE run_steps SET status = $2, completed_at = $3, error_message = $4 WHERE id = $1`,
 			id, status, now, errMsg)
-		return err
+		if err != nil {
+			return fmt.Errorf("updating step status to %s: %w", status, err)
+		}
+		return nil
 	}
 }
 
