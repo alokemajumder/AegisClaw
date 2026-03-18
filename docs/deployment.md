@@ -329,11 +329,13 @@ docker compose -f deploy/docker-compose.yml logs -f api-gateway
 
 ### Migrations
 
-Database migrations live in `internal/database/migrations/` using the `golang-migrate` format. There are currently **3 migrations**:
+Database migrations live in `internal/database/migrations/` using the `golang-migrate` format. There are currently **5 migrations**:
 
 1. `000001_initial_schema` — 13 core tables (organizations, users, assets, connectors, engagements, runs, run_steps, findings, approvals, audit_log, coverage_entries, policy_packs)
 2. `000002_add_reports` — reports table
-3. `000003_add_token_blacklist_and_login_attempts` — token_blacklist and login_attempts tables (persistent auth state)
+3. `000003_add_auth_state` — token_blacklist and login_attempts tables (persistent auth state)
+4. `000004_connector_status_available` — updates connector registry status from beta to available
+5. `000005_add_gin_index_affected_assets` — GIN index on findings.affected_assets for efficient array queries
 
 **Automatic:** Migrations run automatically when the `api-gateway` service starts.
 

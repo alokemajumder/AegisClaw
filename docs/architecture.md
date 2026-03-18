@@ -103,7 +103,8 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 ### Ollama Bridge (`:9095`)
 - **Technology**: Go + gRPC
 - **Role**: LLM proxy with prompt governance, evidence anchoring, model allowlisting
-- **Communicates with**: Ollama (`:11434`)
+- **Backends**: Ollama (`:11434`, default) or NVIDIA NIM (optional high-performance alternative)
+- **Communicates with**: Ollama and/or NIM endpoint; readiness check reports active backend
 - **Health**: `:10095/healthz`
 
 ### Scheduler (`:9096`)
@@ -113,7 +114,7 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 
 ### Health Checks
 
-All services expose HTTP health endpoints at `/healthz` (liveness) and `/readyz` (readiness). The API gateway serves its health checks on its primary HTTP port (`:8080`). All other services run a dedicated health HTTP server on a port offset of +1000 from their gRPC port (e.g., Orchestrator gRPC on `:9090`, health on `:10090`). The `/healthz` endpoint returns HTTP 200 with `{"status":"healthy","service":"<name>"}`. The `/readyz` endpoint checks database and dependency connectivity and returns HTTP 200 or HTTP 503. These endpoints are used by Docker health checks, Kubernetes probes, and the monitoring stack.
+All services expose HTTP health endpoints at `/healthz` (liveness) and `/readyz` (readiness). The API gateway serves its health checks on its primary HTTP port (`:8080`). All other services run a dedicated health HTTP server on a port offset of +1000 from their gRPC port (e.g., Orchestrator gRPC on `:9090`, health on `:10090`). The `/healthz` endpoint returns HTTP 200 with `{"status":"healthy","service":"<name>"}`. The `/readyz` endpoint checks all critical dependencies (database connectivity and NATS health where applicable) and returns HTTP 200 or HTTP 503. These endpoints are used by Docker health checks, Kubernetes probes, and the monitoring stack.
 
 ## Agent Squads
 
