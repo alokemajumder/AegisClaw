@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -14,6 +14,7 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Activity, Loader2 } from "lucide-react";
 import { usePolling } from "@/hooks/useApi";
+import { useGlobalSSE } from "@/hooks/useSSE";
 import { listRuns } from "@/lib/api";
 import type { Run } from "@/lib/types";
 
@@ -36,18 +37,31 @@ const tierColor: Record<number, string> = {
 export default function RunsPage() {
   const [filter, setFilter] = useState("all");
 
-  const { data: runs, loading, error } = usePolling<Run[]>(
+  const { data: runs, loading, error, refetch } = usePolling<Run[]>(
     () => listRuns(1, 50, filter === "all" ? undefined : filter),
     5000,
     [filter]
   );
+
+  // SSE: auto-refetch when a run_status event arrives (instant updates)
+  const { data: sseEvent } = useGlobalSSE();
+  const prevSseRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (sseEvent && sseEvent.event === "run_status") {
+      const key = JSON.stringify(sseEvent);
+      if (key !== prevSseRef.current) {
+        prevSseRef.current = key;
+        refetch();
+      }
+    }
+  }, [sseEvent, refetch]);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-900">Runs</h1>
         <p className="text-sm text-slate-500">
-          Track and monitor security validation runs (auto-refreshes every 5s)
+          Track and monitor security validation runs (real-time via SSE, polling fallback)
         </p>
       </div>
 

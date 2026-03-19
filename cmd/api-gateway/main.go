@@ -29,6 +29,7 @@ import (
 	"github.com/alokemajumder/AegisClaw/pkg/connectorsdk"
 
 	// Connector implementations
+	"github.com/alokemajumder/AegisClaw/connectors/analytics/morpheus"
 	"github.com/alokemajumder/AegisClaw/connectors/edr/crowdstrike"
 	"github.com/alokemajumder/AegisClaw/connectors/edr/defender"
 	"github.com/alokemajumder/AegisClaw/connectors/identity/entraid"
@@ -134,10 +135,18 @@ func main() {
 	_ = connRegistry.Register("slack", func() connectorsdk.Connector { return slack.New() })
 	_ = connRegistry.Register("entraid", func() connectorsdk.Connector { return entraid.New() })
 	_ = connRegistry.Register("okta", func() connectorsdk.Connector { return okta.New() })
+	_ = connRegistry.Register("morpheus", func() connectorsdk.Connector { return morpheus.New() })
 	connInstanceRepo := repository.NewConnectorInstanceRepo(pool)
 	connectorSvc := connector.NewService(connRegistry, connInstanceRepo, logger)
 	defer connectorSvc.Close()
 	h.ConnectorSvc = connectorSvc
+
+	// SSE broker (bridges NATS events to browser clients via Server-Sent Events)
+	if natsClient != nil {
+		if err := api.SetupSSEBroker(h, natsClient.Conn, logger); err != nil {
+			logger.Warn("SSE broker setup failed (real-time updates unavailable)", "error", err)
+		}
+	}
 
 	// Evidence store (optional — log warning if unavailable)
 	evStore, err := evidence.NewStore(ctx, cfg.MinIO, logger)
@@ -267,11 +276,15 @@ func main() {
 				r.Get("/{runID}", h.GetRun)
 				r.Get("/{runID}/steps", h.ListRunSteps)
 				r.Get("/{runID}/receipt", h.GetRunReceipt)
+				r.Get("/{runID}/events", h.HandleRunSSE) // SSE stream for run-specific events
 
 				r.With(requireOperator).Post("/{runID}/kill", h.KillRun)
 				r.With(requireOperator).Post("/{runID}/pause", h.PauseRun)
 				r.With(requireOperator).Post("/{runID}/resume", h.ResumeRun)
 			})
+
+			// Real-time events (SSE)
+			r.Get("/events/stream", h.HandleSSE)
 
 			// Findings
 			r.Route("/findings", func(r chi.Router) {

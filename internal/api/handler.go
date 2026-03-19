@@ -58,6 +58,9 @@ type Handler struct {
 	// NATS client (optional — nil when not configured)
 	NATSClient *natspkg.Client
 
+	// SSE broker (optional — nil when NATS not connected)
+	SSEBroker *SSEBroker
+
 	// Kill switch state
 	killSwitchMu      sync.RWMutex
 	killSwitchEngaged bool

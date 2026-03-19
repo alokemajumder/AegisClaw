@@ -17,6 +17,7 @@ import (
 	"github.com/alokemajumder/AegisClaw/internal/grpcutil"
 	aegisnats "github.com/alokemajumder/AegisClaw/internal/nats"
 	"github.com/alokemajumder/AegisClaw/internal/observability"
+	"github.com/alokemajumder/AegisClaw/internal/sandbox"
 )
 
 func main() {
@@ -49,6 +50,23 @@ func main() {
 		os.Exit(1)
 	}
 	defer nc.Close()
+
+	// Sandbox manager (NemoClaw/OpenShell isolation for agent execution)
+	sandboxMgr := sandbox.NewManager(sandbox.Config{
+		Enabled:        cfg.Sandbox.Enabled,
+		RuntimeURL:     cfg.Sandbox.RuntimeURL,
+		PolicyDir:      cfg.Sandbox.PolicyDir,
+		TimeoutSeconds: cfg.Sandbox.TimeoutSeconds,
+		MaxMemoryMB:    cfg.Sandbox.MaxMemoryMB,
+		MaxCPUCores:    cfg.Sandbox.MaxCPUCores,
+		NetworkPolicy:  cfg.Sandbox.NetworkPolicy,
+	}, logger)
+	if sandboxMgr.IsEnabled() {
+		logger.Info("sandbox execution enabled", "runtime_url", cfg.Sandbox.RuntimeURL)
+	} else {
+		logger.Info("sandbox execution disabled (in-process fallback)")
+	}
+	_ = sandboxMgr // Will be wired to RunEngine when gRPC proto is available
 
 	// Set up gRPC server
 	grpcPort := cfg.Server.GRPCBasePort + 1 // 9091 by default (base 9090 + 1)

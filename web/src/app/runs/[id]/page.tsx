@@ -7,9 +7,10 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, Loader2, Play, CheckCircle2, XCircle, Clock, Pause } from "lucide-react";
 import Link from "next/link";
 import { usePolling } from "@/hooks/useApi";
+import { useRunSSE } from "@/hooks/useSSE";
 import { getRun, listRunSteps, killRun } from "@/lib/api";
 import type { Run, RunStep } from "@/lib/types";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const statusIcon: Record<string, React.ReactNode> = {
   pending: <Clock className="h-4 w-4 text-slate-400" />,
@@ -33,6 +34,19 @@ export default function RunDetailPage({ params }: { params: Promise<{ id: string
   const { data: run, loading, error } = usePolling<Run>(() => getRun(id).then(r => ({ data: r.data })), 5000, [id]);
   const { data: steps, refetch: refetchSteps } = usePolling<RunStep[]>(() => listRunSteps(id).then(r => ({ data: r.data })), 5000, [id]);
   const [killing, setKilling] = useState(false);
+
+  // SSE: instant updates for this specific run
+  const { data: sseEvent } = useRunSSE(id);
+  const prevSseRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (sseEvent) {
+      const key = JSON.stringify(sseEvent);
+      if (key !== prevSseRef.current) {
+        prevSseRef.current = key;
+        refetchSteps();
+      }
+    }
+  }, [sseEvent, refetchSteps]);
 
   const handleKill = async () => {
     setKilling(true);

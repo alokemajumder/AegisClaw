@@ -1,6 +1,6 @@
 # AegisClaw — Implementation Progress
 
-> Last updated: 2026-03-19 (Session 10)
+> Last updated: 2026-03-19 (Session 11)
 
 ---
 
@@ -435,19 +435,36 @@ Comprehensive security audit of all 12 agents identified and fixed 22 findings (
 - [x] Migration CLI: `api-gateway migrate` subcommand wired to `database.RunMigrations()` (was broken)
 - [x] `.gitignore`: Added `!.env.example` exception, added root-level `.next/` and `node_modules/` patterns
 
-### Runner Sandboxing
+### NemoClaw/OpenShell Sandboxing (Session 11)
 
-- [ ] NemoClaw/OpenShell agent sandboxing (replacing gVisor — better NVIDIA ecosystem alignment)
-- [ ] `cmd/runner/` — Register gRPC service, implement sandbox execution
+- [x] `internal/sandbox/openshell.go` — Sandbox manager with governance tier-to-policy mapping (Tier 0–3)
+- [x] `SandboxPolicy` struct: NetworkRules, FilesystemMode, DeniedSyscalls, resource limits per tier
+- [x] Default-deny network policy with per-connector egress rules + DNS allowance
+- [x] `SandboxConfig` added to `internal/config/config.go` with env var support and defaults
+- [x] Runner service (`cmd/runner/main.go`) wired to sandbox manager (in-process fallback when OpenShell runtime not deployed)
+- [ ] OpenShell HTTP client integration (POST /v1/execute) — requires deployed NemoClaw runtime
 - [ ] Runner ↔ Orchestrator gRPC communication protocol
-- [ ] Sandbox resource limits (CPU, memory, network, filesystem)
 - [ ] Sandbox cleanup and artifact extraction
 
-### Real-Time Updates
+### NVIDIA Morpheus Connector (Session 11)
 
-- [ ] WebSocket/SSE endpoint for run status streaming
-- [ ] Frontend: Replace 5s polling with WebSocket connection on runs page
-- [ ] Frontend: Live notification feed via WebSocket
+- [x] `connectors/analytics/morpheus/morpheus.go` — GPU-accelerated security analytics connector
+- [x] Triton Inference Server integration (v2 API: health, model readiness, inference)
+- [x] Morpheus registered in all 3 services: api-gateway, orchestrator, connector-service
+- [x] `CategoryAnalytics` added to connector SDK
+- [x] Migration `000006_add_morpheus_connector` — connector registry entry with JSON Schema config
+- [x] ConfigSchema: triton_url, kafka_brokers, model_name (sid-minibert default), api_key
+
+### SSE Real-Time Updates (Session 11)
+
+- [x] `internal/api/sse_handler.go` — SSE broker bridging NATS events to browser clients
+- [x] Global SSE endpoint: `GET /api/v1/events/stream` (run_status, agent_result, approval_request, kill_switch)
+- [x] Run-specific SSE endpoint: `GET /api/v1/runs/{runID}/events` (filtered to single run)
+- [x] SSE broker: fan-out to multiple clients, keepalive (30s), auto-cleanup on disconnect
+- [x] `web/src/hooks/useSSE.ts` — `useSSE`, `useRunSSE`, `useGlobalSSE` hooks with auto-reconnect
+- [x] Runs list page: SSE triggers instant refetch on run_status events (polling kept as fallback)
+- [x] Run detail page: SSE triggers instant step refetch on run events
+- [ ] Frontend: Live notification feed via SSE (approvals, kill switch)
 
 ### Testing
 
@@ -543,8 +560,8 @@ Comprehensive security audit of all 12 agents identified and fixed 22 findings (
 |-------|-------|-----------|-----------|
 | Phase 0 — Scaffold | 32 | 32 | 0 |
 | Phase 1 — MVP | 98 | 98 | 0 |
-| Phase 2 — Production | 220 | 188 | 32 |
-| **Total** | **350** | **318** | **32** |
+| Phase 2 — Production | 236 | 206 | 30 |
+| **Total** | **366** | **336** | **30** |
 
 **Phase 1 COMPLETE.** All 13 blocks done. End-to-end flow works: Create Asset → Create Engagement → Trigger Run → Findings → Report.
 

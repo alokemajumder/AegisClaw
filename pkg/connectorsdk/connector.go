@@ -16,6 +16,7 @@ const (
 	CategoryIdentity     Category = "identity"
 	CategoryNotification Category = "notification"
 	CategoryCloud        Category = "cloud"
+	CategoryAnalytics    Category = "analytics"
 )
 
 // Capability defines what a connector can do.

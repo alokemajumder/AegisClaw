@@ -27,6 +27,7 @@ import (
 	"github.com/alokemajumder/AegisClaw/pkg/connectorsdk"
 
 	// Connector implementations
+	"github.com/alokemajumder/AegisClaw/connectors/analytics/morpheus"
 	"github.com/alokemajumder/AegisClaw/connectors/edr/crowdstrike"
 	"github.com/alokemajumder/AegisClaw/connectors/edr/defender"
 	"github.com/alokemajumder/AegisClaw/connectors/identity/entraid"
@@ -111,6 +112,7 @@ func main() {
 	_ = connRegistry.Register("slack", func() connectorsdk.Connector { return slack.New() })
 	_ = connRegistry.Register("entraid", func() connectorsdk.Connector { return entraid.New() })
 	_ = connRegistry.Register("okta", func() connectorsdk.Connector { return okta.New() })
+	_ = connRegistry.Register("morpheus", func() connectorsdk.Connector { return morpheus.New() })
 	connectorSvc := connector.NewService(connRegistry, connInstanceRepo, logger)
 	defer connectorSvc.Close()
 

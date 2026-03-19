@@ -10,17 +10,31 @@ import (
 
 // Config holds all platform configuration.
 type Config struct {
-	Server        ServerConfig        `mapstructure:"server"`
-	Database      DatabaseConfig      `mapstructure:"database"`
-	NATS          NATSConfig          `mapstructure:"nats"`
-	MinIO         MinIOConfig         `mapstructure:"minio"`
-	Ollama        OllamaConfig        `mapstructure:"ollama"`
-	NVIDIANIMM    NVIDIANIMConfig       `mapstructure:"nvidia_nim"`
+	Server        ServerConfig         `mapstructure:"server"`
+	Database      DatabaseConfig       `mapstructure:"database"`
+	NATS          NATSConfig           `mapstructure:"nats"`
+	MinIO         MinIOConfig          `mapstructure:"minio"`
+	Ollama        OllamaConfig         `mapstructure:"ollama"`
+	NVIDIANIMM    NVIDIANIMConfig      `mapstructure:"nvidia_nim"`
 	Guardrails    NeMoGuardrailsConfig `mapstructure:"nemo_guardrails"`
-	Auth          AuthConfig          `mapstructure:"auth"`
-	Policy        PolicyConfig        `mapstructure:"policy"`
-	Observability ObservabilityConfig `mapstructure:"observability"`
-	TLS           TLSConfig           `mapstructure:"tls"`
+	Sandbox       SandboxConfig        `mapstructure:"sandbox"`
+	Auth          AuthConfig           `mapstructure:"auth"`
+	Policy        PolicyConfig         `mapstructure:"policy"`
+	Observability ObservabilityConfig  `mapstructure:"observability"`
+	TLS           TLSConfig            `mapstructure:"tls"`
+}
+
+// SandboxConfig holds NemoClaw/OpenShell sandbox configuration.
+// When enabled, agent execution steps run inside Landlock+seccomp+netns sandboxes
+// matching the governance tier policy.
+type SandboxConfig struct {
+	Enabled        bool   `mapstructure:"enabled"`
+	RuntimeURL     string `mapstructure:"runtime_url"`     // OpenShell runtime endpoint
+	PolicyDir      string `mapstructure:"policy_dir"`      // Directory containing .yaml policy files
+	TimeoutSeconds int    `mapstructure:"timeout_seconds"` // Per-step execution timeout
+	MaxMemoryMB    int    `mapstructure:"max_memory_mb"`   // Memory limit per sandbox
+	MaxCPUCores    int    `mapstructure:"max_cpu_cores"`   // CPU core limit per sandbox
+	NetworkPolicy  string `mapstructure:"network_policy"`  // Default network policy (deny_all, allow_connectors, allow_all)
 }
 
 type ServerConfig struct {
@@ -168,6 +182,13 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("nemo_guardrails.jailbreak_url", "http://localhost:8181/v1")
 	v.SetDefault("nemo_guardrails.topic_control_url", "http://localhost:8182/v1")
 	v.SetDefault("nemo_guardrails.timeout_seconds", 10)
+	v.SetDefault("sandbox.enabled", false)
+	v.SetDefault("sandbox.runtime_url", "http://localhost:8765")
+	v.SetDefault("sandbox.policy_dir", "./configs/sandbox-policies")
+	v.SetDefault("sandbox.timeout_seconds", 300)
+	v.SetDefault("sandbox.max_memory_mb", 2048)
+	v.SetDefault("sandbox.max_cpu_cores", 2)
+	v.SetDefault("sandbox.network_policy", "deny_all")
 	v.SetDefault("auth.token_expiry", "15m")
 	v.SetDefault("auth.refresh_expiry", "7d")
 	v.SetDefault("auth.receipt_hmac_key", "dev-receipt-key-change-in-production")
