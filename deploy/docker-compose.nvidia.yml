@@ -1,0 +1,152 @@
+# ═══════════════════════════════════════════════════════════════════
+# AegisClaw — NVIDIA GPU-Accelerated Deployment Override
+# ═══════════════════════════════════════════════════════════════════
+#
+# Use this overlay with the base docker-compose.yml to enable GPU
+# acceleration, NVIDIA NIM inference, and NeMo Guardrails.
+#
+# Usage:
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.nvidia.yml up -d
+#
+# Prerequisites:
+#   - NVIDIA GPU driver 535+ installed
+#   - NVIDIA Container Toolkit (nvidia-docker2) installed
+#   - At least one NVIDIA GPU (consumer RTX or data center)
+#
+# Hardware Profiles:
+#   ┌─────────────────────┬──────────┬──────────────────────────────┬──────────────┐
+#   │ GPU                 │ VRAM     │ Recommended Model            │ Est. Cost    │
+#   ├─────────────────────┼──────────┼──────────────────────────────┼──────────────┤
+#   │ RTX 3060            │ 12GB     │ llama3.2 (3B) via Ollama     │ ~$300        │
+#   │ RTX 4060 Ti         │ 16GB     │ llama3.1 (8B) via Ollama     │ ~$400        │
+#   │ RTX 4070 Ti Super   │ 16GB     │ llama3.1 (8B) via Ollama     │ ~$800        │
+#   │ RTX 4080 Super      │ 16GB     │ mistral (7B) via Ollama      │ ~$1,000      │
+#   │ RTX 4090            │ 24GB     │ nemotron-nano-8b via NIM     │ ~$1,600      │
+#   │ RTX 5090            │ 32GB     │ nemotron-nano-8b via NIM     │ ~$2,000      │
+#   │ RTX PRO 6000        │ 96GB     │ nemotron-super-49b via NIM   │ ~$8,500      │
+#   │ 2× RTX 4090         │ 48GB     │ nemotron-super-49b via NIM   │ ~$3,200      │
+#   │ A100 / H100         │ 80GB     │ nemotron-super-49b via NIM   │ ~$15-40K     │
+#   │ DGX Spark           │ 128GB    │ nemotron-ultra-253b via NIM  │ ~$4,700      │
+#   │ DGX Station         │ 784GB    │ nemotron-ultra-253b via NIM  │ ~$50K        │
+#   └─────────────────────┴──────────┴──────────────────────────────┴──────────────┘
+#
+# Monthly running cost estimate (electricity only, 24/7):
+#   - RTX 4090 (450W TDP):  ~$50/month at $0.15/kWh
+#   - RTX 5090 (575W TDP):  ~$65/month at $0.15/kWh
+#   - DGX Spark (250W):     ~$27/month at $0.15/kWh
+#
+# vs. Cloud API cost (NVIDIA API Catalog):
+#   - ~$0.0003-0.001 per 1K tokens depending on model
+#   - At 100K tokens/day: ~$1-3/day = $30-90/month
+#   - Break-even vs self-hosted RTX 4090: ~6-12 months
+# ═══════════════════════════════════════════════════════════════════
+
+services:
+  # Ollama with GPU acceleration — for open-source models (Llama, Mistral, etc.)
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          cpus: "4.0"
+          memory: 16G
+    environment:
+      # Ollama automatically detects and uses available GPUs.
+      # Set OLLAMA_NUM_GPU to limit GPU layers (useful for sharing GPU with NIM).
+      # OLLAMA_NUM_GPU: "999"   # Use all available GPU layers (default)
+      OLLAMA_FLASH_ATTENTION: "1"
+
+  # Ollama Bridge with NIM + Guardrails enabled
+  ollama-bridge:
+    environment:
+      AEGISCLAW_NVIDIA_NIM_ENABLED: "true"
+      AEGISCLAW_NVIDIA_NIM_URL: ${AEGISCLAW_NVIDIA_NIM_URL:-https://integrate.api.nvidia.com/v1}
+      AEGISCLAW_NVIDIA_NIM_API_KEY: ${AEGISCLAW_NVIDIA_NIM_API_KEY:-}
+      AEGISCLAW_NVIDIA_NIM_DEFAULT_MODEL: ${AEGISCLAW_NVIDIA_NIM_DEFAULT_MODEL:-nvidia/nemotron-super-49b-v1}
+
+  # ─────────────────────────────────────────────
+  # Optional: Self-hosted NIM container
+  # Uncomment to run NIM locally instead of using cloud API.
+  # Requires NVIDIA GPU with sufficient VRAM for chosen model.
+  # ─────────────────────────────────────────────
+
+  # nim:
+  #   image: nvcr.io/nim/nvidia/nemotron-nano-8b-v1:latest
+  #   container_name: aegisclaw-nim
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8000:8000"
+  #   environment:
+  #     NGC_API_KEY: ${NGC_API_KEY:-}
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #       limits:
+  #         memory: 32G
+  #   volumes:
+  #     - nim-cache:/opt/nim/.cache
+  #   networks:
+  #     - aegisclaw-net
+  #   healthcheck:
+  #     test: ["CMD", "curl", "-f", "http://localhost:8000/v1/health/ready"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 30
+  #     start_period: 120s
+
+  # ─────────────────────────────────────────────
+  # Optional: NeMo Guardrails NIMs
+  # Content safety, jailbreak detection, topic control.
+  # Each runs as a lightweight NIM container (~2GB VRAM each).
+  # ─────────────────────────────────────────────
+
+  # guardrails-content-safety:
+  #   image: nvcr.io/nim/nvidia/nemo-guardrails-content-safety:latest
+  #   container_name: aegisclaw-guardrails-content-safety
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8180:8000"
+  #   environment:
+  #     NGC_API_KEY: ${NGC_API_KEY:-}
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #       limits:
+  #         memory: 4G
+  #   networks:
+  #     - aegisclaw-net
+
+  # guardrails-jailbreak:
+  #   image: nvcr.io/nim/nvidia/nemo-guardrails-jailbreak:latest
+  #   container_name: aegisclaw-guardrails-jailbreak
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8181:8000"
+  #   environment:
+  #     NGC_API_KEY: ${NGC_API_KEY:-}
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: 1
+  #             capabilities: [gpu]
+  #       limits:
+  #         memory: 4G
+  #   networks:
+  #     - aegisclaw-net
+
+# volumes:
+#   nim-cache:

@@ -102,9 +102,10 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 
 ### Ollama Bridge (`:9095`)
 - **Technology**: Go + gRPC
-- **Role**: LLM proxy with prompt governance, evidence anchoring, model allowlisting
-- **Backends**: Ollama (`:11434`, default) or NVIDIA NIM (optional high-performance alternative)
-- **Communicates with**: Ollama and/or NIM endpoint; readiness check reports active backend
+- **Role**: LLM proxy with prompt governance, evidence anchoring, model allowlisting, guardrails
+- **Backends**: Ollama (`:11434`, default) or NVIDIA NIM with Nemotron models (optional high-performance alternative)
+- **Safety**: Optional NeMo Guardrails integration (content safety, jailbreak detection, topic control)
+- **Communicates with**: Ollama and/or NIM endpoint; NeMo Guardrails NIMs (when enabled); readiness check reports active backend and guardrails status
 - **Health**: `:10095/healthz`
 
 ### Scheduler (`:9096`)

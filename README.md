@@ -95,7 +95,12 @@ See the [Deployment Guide](docs/deployment.md) for production setup, hardening, 
 | Notifications | Teams, Slack |
 | Identity | Entra ID, Okta |
 
-**Dual LLM Backend** — Ollama for air-gapped local inference (default) or NVIDIA NIM for high-performance inference via API Catalog, self-hosted DGX, or NeMoClaw runtime. All reasoning stays within your infrastructure.
+**Flexible LLM Backend** — Runs on any hardware from a $200 used GPU to NVIDIA DGX:
+- **Ollama** (default) — Free, open-source, runs on consumer GPUs (RTX 3060+) or CPU-only
+- **NVIDIA NIM** — Nemotron models via API Catalog or self-hosted on RTX/DGX hardware
+- **NeMo Guardrails** — Optional content safety, jailbreak detection, and topic control for LLM prompts
+
+All reasoning stays within your infrastructure. See the [NVIDIA Deployment Guide](docs/nvidia-deployment.md) for GPU sizing and cost optimization.
 
 **Enterprise Safety Controls** — Fail-closed policy enforcement, hard target allowlists, circuit breakers on all connector calls, global kill switch (NATS-propagated, persistent across restarts), RBAC on all 59 API endpoints, persistent token blacklisting, and account lockout.
 
@@ -108,7 +113,8 @@ See the [Deployment Guide](docs/deployment.md) for production setup, hardening, 
 | Database | PostgreSQL 16 (16 tables, golang-migrate) |
 | Messaging | NATS + JetStream (5 streams) |
 | Evidence | MinIO (S3-compatible) |
-| LLM | Ollama (local) or NVIDIA NIM (high-perf) |
+| LLM | Ollama (local, free) or NVIDIA NIM + Nemotron (high-perf) |
+| LLM Safety | NeMo Guardrails (content safety, jailbreak detection) |
 | Observability | OpenTelemetry, Prometheus, Grafana, Jaeger |
 
 ## Documentation
@@ -118,6 +124,7 @@ See the [Deployment Guide](docs/deployment.md) for production setup, hardening, 
 | **[Architecture](docs/architecture.md)** | Services, agent squads, data flows, NATS streams, database schema |
 | **[Security Model](docs/security-model.md)** | Governance tiers, safety controls, auth, RBAC, threat model |
 | **[Deployment Guide](docs/deployment.md)** | Docker Compose, production hardening, backup/restore, CLI, troubleshooting |
+| **[NVIDIA GPU Deployment](docs/nvidia-deployment.md)** | GPU sizing, NIM setup, Nemotron models, cost optimization for SMB to enterprise |
 | **[Connector Development](docs/connector-development.md)** | Build custom connectors using the Connector SDK |
 | **[Playbook Authoring](docs/playbook-authoring.md)** | Create validation playbooks (YAML format) |
 
@@ -148,9 +155,12 @@ AegisClaw/
 - JWT auth, RBAC, token blacklisting, account lockout, kill switch
 - Docker Compose with health checks, resource limits, graceful shutdown
 - Production audit: 22 security fixes, connection pool hardening, input validation
+- NVIDIA NIM integration with Nemotron model support
+- NeMo Guardrails integration (content safety, jailbreak detection)
+- GPU deployment profiles for consumer GPUs (RTX 3060-5090) through DGX
 
 ### In Progress
-- gVisor runner sandboxing
+- NemoClaw/OpenShell agent sandboxing (replacing gVisor)
 - PDF report renderer
 - WebSocket/SSE real-time updates
 - Kubernetes Helm chart
@@ -158,6 +168,7 @@ AegisClaw/
 
 ### Planned
 - Full ATT&CK coverage heatmap visualization
+- NVIDIA Morpheus integration for GPU-accelerated detection validation
 - SSO/OIDC integration
 - HA and backup/restore automation
 - Vertical-specific playbook packs

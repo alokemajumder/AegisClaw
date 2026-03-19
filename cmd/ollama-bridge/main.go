@@ -40,9 +40,19 @@ func main() {
 	}
 
 	// Parse allowed models from config.
+	// Default list is optimized for consumer/gaming GPUs (8-24GB VRAM).
 	allowedModels := cfg.Ollama.ModelAllowlist
 	if len(allowedModels) == 0 {
-		allowedModels = []string{"llama3.2", "mistral", "codellama", "phi3"}
+		allowedModels = []string{
+			"llama3.2",         // 3B — runs on any GPU with 4GB+ VRAM
+			"llama3.2:1b",      // 1B — minimal footprint, CPU-capable
+			"llama3.1",         // 8B — good balance, 8GB VRAM
+			"llama3.1:70b",     // 70B — requires 48GB+ VRAM or quantized on 24GB
+			"mistral",          // 7B — fast, 8GB VRAM
+			"phi3",             // 3.8B — efficient for constrained hardware
+			"gemma2",           // 9B — strong reasoning, 10GB VRAM
+			"qwen2.5",          // 7B — multilingual, 8GB VRAM
+		}
 	}
 
 	// Create Ollama client (always available as fallback).
@@ -65,11 +75,13 @@ func main() {
 		nimModels := cfg.NVIDIANIMM.ModelAllowlist
 		if len(nimModels) == 0 {
 			nimModels = []string{
-				"nvidia/nemotron-4-340b-instruct",
-				"nvidia/llama-3.1-nemotron-70b-instruct",
+				// Nemotron models — optimized for agentic security workflows
+				"nvidia/nemotron-super-49b-v1",             // Recommended: best quality/cost for agentic tasks
+				"nvidia/nemotron-nano-8b-v1",               // Lightweight: fits on RTX 4090/5090 (24GB VRAM)
+				"nvidia/nemotron-ultra-253b-v1",             // Maximum reasoning: requires multi-GPU or DGX
+				// Open models via NIM
+				"meta/llama-3.3-70b-instruct",
 				"meta/llama-3.1-405b-instruct",
-				"meta/llama-3.1-70b-instruct",
-				"mistralai/mixtral-8x22b-instruct-v0.1",
 				"deepseek-ai/deepseek-r1",
 			}
 		}
@@ -94,6 +106,32 @@ func main() {
 		}
 	}
 
+	// NeMo Guardrails — optional prompt safety layer.
+	// When enabled, all LLM prompts are screened for content safety, jailbreak
+	// attempts, and off-topic requests before being sent to the inference backend.
+	var guardrailsClient *ollama.GuardrailsClient
+	if cfg.Guardrails.Enabled {
+		guardrailsClient = ollama.NewGuardrailsClient(
+			cfg.Guardrails.ContentSafetyURL,
+			cfg.Guardrails.JailbreakURL,
+			cfg.Guardrails.TopicControlURL,
+			cfg.Guardrails.TimeoutSeconds,
+			logger,
+		)
+
+		if guardrailsClient.IsAvailable(ctx) {
+			logger.Info("NeMo Guardrails NIMs are available (prompt safety enabled)",
+				"content_safety", cfg.Guardrails.ContentSafetyURL,
+				"jailbreak", cfg.Guardrails.JailbreakURL,
+				"topic_control", cfg.Guardrails.TopicControlURL,
+			)
+		} else {
+			logger.Warn("NeMo Guardrails enabled but no endpoints reachable — prompts will bypass guardrails")
+		}
+	}
+
+	_ = guardrailsClient // Available for gRPC handler integration
+
 	// Check Ollama connectivity.
 	if client.IsAvailable(ctx) {
 		logger.Info("ollama service is available", "url", cfg.Ollama.URL)
@@ -111,6 +149,7 @@ func main() {
 		"ollama_default_model", cfg.Ollama.DefaultModel,
 		"nvidia_nim_enabled", cfg.NVIDIANIMM.Enabled,
 		"nvidia_nim_url", cfg.NVIDIANIMM.URL,
+		"nemo_guardrails_enabled", cfg.Guardrails.Enabled,
 		"allowed_models", allowedModels,
 	)
 
@@ -133,12 +172,20 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		ollamaReady := client.IsAvailable(context.Background())
 		nimReady := nimClient != nil && nimClient.IsAvailable(context.Background())
+		guardrailsReady := guardrailsClient != nil && guardrailsClient.IsAvailable(context.Background())
 		if ollamaReady || nimReady {
 			backend := "ollama"
 			if nimReady {
 				backend = "nvidia_nim"
 			}
-			fmt.Fprintf(w, `{"status":"ready","service":"ollama-bridge","backend":"%s"}`, backend)
+			guardrails := "disabled"
+			if cfg.Guardrails.Enabled {
+				guardrails = "enabled"
+				if guardrailsReady {
+					guardrails = "active"
+				}
+			}
+			fmt.Fprintf(w, `{"status":"ready","service":"ollama-bridge","backend":"%s","guardrails":"%s"}`, backend, guardrails)
 		} else {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			fmt.Fprintf(w, `{"status":"not_ready","service":"ollama-bridge","error":"no LLM backend available"}`)

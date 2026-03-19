@@ -190,23 +190,36 @@ ollama:
   default_model: llama3.1
   model_allowlist:
     - llama3.1
-    - codellama
+    - llama3.2
     - mistral
+    - phi3
+    - gemma2
+    - qwen2.5
   timeout_seconds: 120
 
 # NVIDIA NIM — optional high-performance LLM backend (alternative to Ollama)
-# Enable for NVIDIA API Catalog, self-hosted DGX/DGX Spark, or NeMoClaw runtime
+# Supports consumer GPUs (RTX 4090/5090), workstation, DGX, or cloud API.
+# See docs/nvidia-deployment.md for full GPU sizing and cost guide.
 nvidia_nim:
   enabled: false
   url: https://integrate.api.nvidia.com/v1   # Cloud API, or http://localhost:8000/v1 for self-hosted
   api_key_ref: AEGISCLAW_NVIDIA_NIM_API_KEY  # Environment variable holding the API key
-  default_model: nvidia/nemotron-4-340b-instruct
+  default_model: nvidia/nemotron-super-49b-v1
   model_allowlist:
-    - nvidia/nemotron-4-340b-instruct
-    - nvidia/llama-3.1-nemotron-70b-instruct
-    - meta/llama-3.1-405b-instruct
+    - nvidia/nemotron-nano-8b-v1       # RTX 4090/5090 (24GB) — SMB optimized
+    - nvidia/nemotron-super-49b-v1     # 2xRTX or A100 — best quality/cost
+    - nvidia/nemotron-ultra-253b-v1    # DGX — maximum reasoning
+    - meta/llama-3.3-70b-instruct
     - deepseek-ai/deepseek-r1
   timeout_seconds: 120
+
+# NeMo Guardrails — optional prompt safety layer
+# nemo_guardrails:
+#   enabled: false
+#   content_safety_url: http://localhost:8180/v1
+#   jailbreak_url: http://localhost:8181/v1
+#   topic_control_url: http://localhost:8182/v1
+#   timeout_seconds: 10
 
 auth:
   jwt_secret: dev-secret-change-in-production
@@ -234,7 +247,8 @@ observability:
 | `nats`          | NATS URL, reconnect behavior                                     |
 | `minio`         | MinIO/S3 endpoint, credentials, bucket name                      |
 | `ollama`        | Ollama URL, default model, model allowlist, timeout               |
-| `nvidia_nim`    | NVIDIA NIM endpoint, API key, model allowlist (optional, alternative to Ollama) |
+| `nvidia_nim`    | NVIDIA NIM endpoint, API key, Nemotron model allowlist (optional) |
+| `nemo_guardrails` | NeMo Guardrails NIM endpoints for prompt safety (optional)      |
 | `server`        | API port, gRPC port, CORS origins, playbook directory             |
 | `policy`        | Default playbook pack, rate limits, concurrency cap               |
 | `observability` | OTEL tracing endpoint, Prometheus metrics port, log level         |

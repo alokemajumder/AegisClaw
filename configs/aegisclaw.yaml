@@ -28,9 +28,34 @@ ollama:
   default_model: llama3.1
   model_allowlist:
     - llama3.1
-    - codellama
+    - llama3.2
     - mistral
+    - phi3
+    - gemma2
+    - qwen2.5
   timeout_seconds: 120
+
+# NVIDIA NIM — optional high-performance LLM backend
+# Enable for NVIDIA API Catalog, self-hosted DGX, or consumer RTX GPUs
+# nvidia_nim:
+#   enabled: false
+#   url: https://integrate.api.nvidia.com/v1
+#   api_key_ref: AEGISCLAW_NVIDIA_NIM_API_KEY
+#   default_model: nvidia/nemotron-super-49b-v1
+#   model_allowlist:
+#     - nvidia/nemotron-nano-8b-v1       # RTX 4090/5090 (24GB) — SMB optimized
+#     - nvidia/nemotron-super-49b-v1     # 2xRTX or A100 — best quality/cost
+#     - nvidia/nemotron-ultra-253b-v1    # DGX — maximum reasoning
+#     - meta/llama-3.3-70b-instruct
+#   timeout_seconds: 120
+
+# NeMo Guardrails — optional prompt safety layer via NVIDIA NeMo NIMs
+# nemo_guardrails:
+#   enabled: false
+#   content_safety_url: http://localhost:8180/v1
+#   jailbreak_url: http://localhost:8181/v1
+#   topic_control_url: http://localhost:8182/v1
+#   timeout_seconds: 10
 
 auth:
   jwt_secret: dev-secret-change-in-production

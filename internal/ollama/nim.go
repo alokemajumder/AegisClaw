@@ -13,12 +13,19 @@ import (
 
 // NIMClient communicates with an NVIDIA NIM (NeMo Inference Microservice) endpoint.
 // NIM exposes an OpenAI-compatible chat completions API, making it a drop-in
-// alternative to Ollama for organisations with NVIDIA infrastructure (DGX, RTX, cloud).
+// alternative to Ollama for organisations with NVIDIA infrastructure.
+//
+// Recommended models:
+//   - nvidia/nemotron-nano-8b-v1    — Fits on consumer GPUs (RTX 4090/5090, 24GB VRAM). Best for SMB.
+//   - nvidia/nemotron-super-49b-v1  — Optimal quality/cost for agentic security tasks. Fits on 2×RTX or A100.
+//   - nvidia/nemotron-ultra-253b-v1 — Maximum reasoning capability. Requires DGX or multi-GPU.
 //
 // Supported deployment targets:
-//   - NVIDIA API Catalog (build.nvidia.com)
-//   - Self-hosted NIM on DGX / DGX Spark / DGX Station
-//   - NVIDIA NeMoClaw runtime (OpenShell-based agent execution)
+//   - Consumer/gaming GPUs: RTX 4090, RTX 5090, RTX 4080 (self-hosted NIM, SMB-optimized)
+//   - Workstation GPUs: RTX PRO 6000, RTX A6000 (self-hosted NIM)
+//   - NVIDIA DGX Spark / DGX Station (team/department)
+//   - NVIDIA DGX BasePOD / SuperPOD (enterprise)
+//   - NVIDIA API Catalog (build.nvidia.com) — pay-per-token, zero hardware
 type NIMClient struct {
 	baseURL    string
 	apiKey     string

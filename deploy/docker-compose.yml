@@ -83,11 +83,19 @@ services:
       - "11434:11434"
     volumes:
       - ollama-models:/root/.ollama
+    # Uncomment for GPU acceleration (consumer GPUs: RTX 3060+, RTX 4090/5090)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     deploy:
       resources:
         limits:
-          cpus: "2.0"
-          memory: 2G
+          cpus: "4.0"
+          memory: 8G
     networks:
       - aegisclaw-net
 
@@ -426,6 +434,14 @@ services:
       AEGISCLAW_NATS_URL: nats://nats:4222
       AEGISCLAW_OLLAMA_URL: http://ollama:11434
       AEGISCLAW_JAEGER_ENDPOINT: jaeger:4317
+      # NVIDIA NIM (uncomment to enable)
+      # AEGISCLAW_NVIDIA_NIM_ENABLED: "true"
+      # AEGISCLAW_NVIDIA_NIM_URL: ${AEGISCLAW_NVIDIA_NIM_URL:-https://integrate.api.nvidia.com/v1}
+      # AEGISCLAW_NVIDIA_NIM_API_KEY: ${AEGISCLAW_NVIDIA_NIM_API_KEY:-}
+      # NeMo Guardrails (uncomment to enable)
+      # AEGISCLAW_NEMO_GUARDRAILS_ENABLED: "true"
+      # AEGISCLAW_NEMO_GUARDRAILS_CONTENT_SAFETY_URL: http://guardrails-content-safety:8180/v1
+      # AEGISCLAW_NEMO_GUARDRAILS_JAILBREAK_URL: http://guardrails-jailbreak:8181/v1
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:10095/healthz"]
       interval: 10s
