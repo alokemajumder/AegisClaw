@@ -54,11 +54,10 @@ clean: ## Remove build artifacts
 # Database
 migrate: ## Run database migrations
 	@echo "Running migrations..."
-	go run ./cmd/api-gateway migrate
+	@go run ./cmd/api-gateway migrate
 
-migrate-down: ## Rollback last migration
-	@echo "Rolling back migration..."
-	go run ./cmd/api-gateway migrate-down
+migrate-cli: ## Run migrations via golang-migrate CLI (alternative)
+	migrate -path internal/database/migrations -database "postgres://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(POSTGRES_DB)?sslmode=disable" up
 
 # Docker
 docker-up: ## Start all services with Docker Compose
@@ -66,6 +65,12 @@ docker-up: ## Start all services with Docker Compose
 
 docker-down: ## Stop all Docker Compose services
 	docker compose -f deploy/docker-compose.yml down
+
+nvidia-up: ## Start with NVIDIA GPU acceleration (requires nvidia-docker2)
+	docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.nvidia.yml up -d
+
+nvidia-down: ## Stop NVIDIA GPU services
+	docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.nvidia.yml down
 
 docker-build: ## Build all Docker images
 	@for svc in $(SERVICES); do \

@@ -1,6 +1,6 @@
 # AegisClaw — Implementation Progress
 
-> Last updated: 2026-03-15 (Session 9)
+> Last updated: 2026-03-19 (Session 10)
 
 ---
 
@@ -415,9 +415,29 @@ Comprehensive security audit of all 12 agents identified and fixed 22 findings (
 **Files changed:** 11 files, +418/-155 lines
 **Commit:** `c79a05c` — pushed to main
 
+### NVIDIA Ecosystem Integration (Session 10)
+
+- [x] NIM client updated: Nemotron model family (Nano 8B, Super 49B, Ultra 253B) as defaults
+- [x] NeMo Guardrails client: content safety, jailbreak detection, topic control via NVIDIA NIMs
+- [x] NeMoGuardrailsConfig added to platform config with env var support
+- [x] Guardrails integrated into ollama-bridge with readyz status reporting
+- [x] GPU deployment overlay: `deploy/docker-compose.nvidia.yml` with hardware cost table
+- [x] NVIDIA deployment guide: `docs/nvidia-deployment.md` — SMB-to-enterprise GPU sizing, cost optimization
+- [x] Ollama defaults expanded for consumer GPUs: llama3.2, phi3, gemma2, qwen2.5
+- [x] Ollama container resources increased for GPU workloads (4 CPU / 8GB RAM)
+- [x] README, architecture.md, deployment.md updated with NVIDIA integration
+- [x] `.env.example` updated with NIM + Guardrails documentation
+- [x] `make nvidia-up` / `make nvidia-down` targets added
+
+### Production Fixes (Session 10)
+
+- [x] API gateway: Register all 11 connectors (was only 5 — CrowdStrike, Splunk, Elastic, Jira, Okta, Entra ID were missing)
+- [x] Migration CLI: `api-gateway migrate` subcommand wired to `database.RunMigrations()` (was broken)
+- [x] `.gitignore`: Added `!.env.example` exception, added root-level `.next/` and `node_modules/` patterns
+
 ### Runner Sandboxing
 
-- [ ] gVisor sandbox for Tier 2-3 runner isolation
+- [ ] NemoClaw/OpenShell agent sandboxing (replacing gVisor — better NVIDIA ecosystem alignment)
 - [ ] `cmd/runner/` — Register gRPC service, implement sandbox execution
 - [ ] Runner ↔ Orchestrator gRPC communication protocol
 - [ ] Sandbox resource limits (CPU, memory, network, filesystem)
@@ -523,8 +543,8 @@ Comprehensive security audit of all 12 agents identified and fixed 22 findings (
 |-------|-------|-----------|-----------|
 | Phase 0 — Scaffold | 32 | 32 | 0 |
 | Phase 1 — MVP | 98 | 98 | 0 |
-| Phase 2 — Production | 206 | 174 | 32 |
-| **Total** | **336** | **304** | **32** |
+| Phase 2 — Production | 220 | 188 | 32 |
+| **Total** | **350** | **318** | **32** |
 
 **Phase 1 COMPLETE.** All 13 blocks done. End-to-end flow works: Create Asset → Create Engagement → Trigger Run → Findings → Report.
 

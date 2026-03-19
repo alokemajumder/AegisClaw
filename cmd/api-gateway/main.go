@@ -29,11 +29,17 @@ import (
 	"github.com/alokemajumder/AegisClaw/pkg/connectorsdk"
 
 	// Connector implementations
+	"github.com/alokemajumder/AegisClaw/connectors/edr/crowdstrike"
 	"github.com/alokemajumder/AegisClaw/connectors/edr/defender"
+	"github.com/alokemajumder/AegisClaw/connectors/identity/entraid"
+	"github.com/alokemajumder/AegisClaw/connectors/identity/okta"
+	"github.com/alokemajumder/AegisClaw/connectors/itsm/jira"
 	"github.com/alokemajumder/AegisClaw/connectors/itsm/servicenow"
 	"github.com/alokemajumder/AegisClaw/connectors/notifications/slack"
 	"github.com/alokemajumder/AegisClaw/connectors/notifications/teams"
+	"github.com/alokemajumder/AegisClaw/connectors/siem/elastic"
 	"github.com/alokemajumder/AegisClaw/connectors/siem/sentinel"
+	"github.com/alokemajumder/AegisClaw/connectors/siem/splunk"
 )
 
 func main() {
@@ -48,6 +54,17 @@ func main() {
 
 	logger := observability.NewLogger("api-gateway", cfg.Observability.LogLevel)
 	slog.SetDefault(logger)
+
+	// Handle migrate subcommand: `api-gateway migrate` or `go run ./cmd/api-gateway migrate`
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		migrationsPath := "internal/database/migrations"
+		if err := database.RunMigrations(cfg.Database, migrationsPath, logger); err != nil {
+			logger.Error("migration failed", "error", err)
+			os.Exit(1)
+		}
+		logger.Info("migrations completed successfully")
+		return
+	}
 
 	shutdown, err := observability.Setup(ctx, "api-gateway", cfg.Observability)
 	if err != nil {
@@ -107,10 +124,16 @@ func main() {
 	// Connector registry + service
 	connRegistry := connectorsdk.NewRegistry()
 	_ = connRegistry.Register("sentinel", func() connectorsdk.Connector { return sentinel.New() })
+	_ = connRegistry.Register("splunk", func() connectorsdk.Connector { return splunk.New() })
+	_ = connRegistry.Register("elastic", func() connectorsdk.Connector { return elastic.New() })
 	_ = connRegistry.Register("defender", func() connectorsdk.Connector { return defender.New() })
+	_ = connRegistry.Register("crowdstrike", func() connectorsdk.Connector { return crowdstrike.New() })
 	_ = connRegistry.Register("servicenow", func() connectorsdk.Connector { return servicenow.New() })
+	_ = connRegistry.Register("jira", func() connectorsdk.Connector { return jira.New() })
 	_ = connRegistry.Register("teams", func() connectorsdk.Connector { return teams.New() })
 	_ = connRegistry.Register("slack", func() connectorsdk.Connector { return slack.New() })
+	_ = connRegistry.Register("entraid", func() connectorsdk.Connector { return entraid.New() })
+	_ = connRegistry.Register("okta", func() connectorsdk.Connector { return okta.New() })
 	connInstanceRepo := repository.NewConnectorInstanceRepo(pool)
 	connectorSvc := connector.NewService(connRegistry, connInstanceRepo, logger)
 	defer connectorSvc.Close()
