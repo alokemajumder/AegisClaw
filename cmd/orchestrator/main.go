@@ -23,6 +23,8 @@ import (
 	"github.com/alokemajumder/AegisClaw/internal/observability"
 	"github.com/alokemajumder/AegisClaw/internal/orchestrator"
 	"github.com/alokemajumder/AegisClaw/internal/playbook"
+	"github.com/alokemajumder/AegisClaw/internal/sandbox"
+	sandboxadapter "github.com/alokemajumder/AegisClaw/internal/sandbox/adapter"
 	"github.com/alokemajumder/AegisClaw/pkg/agentsdk"
 	"github.com/alokemajumder/AegisClaw/pkg/connectorsdk"
 
@@ -119,6 +121,37 @@ func main() {
 	// Playbook loader and executor
 	pbLoader := playbook.NewLoader(logger)
 	pbExecutor := playbook.NewExecutor(connectorSvc, logger)
+
+	// Sandbox manager — routes simulation steps through OpenShell when enabled
+	sandboxMgr := sandbox.NewManager(sandbox.Config{
+		Enabled:        cfg.Sandbox.Enabled,
+		RuntimeURL:     cfg.Sandbox.RuntimeURL,
+		PolicyDir:      cfg.Sandbox.PolicyDir,
+		TimeoutSeconds: cfg.Sandbox.TimeoutSeconds,
+		MaxMemoryMB:    cfg.Sandbox.MaxMemoryMB,
+		MaxCPUCores:    cfg.Sandbox.MaxCPUCores,
+		NetworkPolicy:  cfg.Sandbox.NetworkPolicy,
+		Image:          cfg.Sandbox.Image,
+		GPU:            cfg.Sandbox.GPU,
+		OllamaURL:      cfg.Ollama.URL,
+		Gateway: sandbox.GatewayConfig{
+			URL:      cfg.Sandbox.RuntimeURL,
+			AuthMode: cfg.Sandbox.AuthMode,
+			CertFile: cfg.Sandbox.CertFile,
+			KeyFile:  cfg.Sandbox.KeyFile,
+			CAFile:   cfg.Sandbox.CAFile,
+			Token:    cfg.Sandbox.GatewayToken,
+		},
+	}, logger)
+	if sandboxMgr.IsEnabled() {
+		logger.Info("sandbox execution enabled for orchestrator", "runtime_url", cfg.Sandbox.RuntimeURL)
+		if err := sandboxMgr.ConnectGateway(ctx); err != nil {
+			logger.Warn("OpenShell gateway connection failed (in-process fallback)", "error", err)
+		}
+		pbExecutor.SetSandbox(sandboxadapter.New(sandboxMgr))
+	} else {
+		logger.Info("sandbox execution disabled (in-process fallback)")
+	}
 
 	// Kill switch
 	killSwitch := orchestrator.NewKillSwitch()

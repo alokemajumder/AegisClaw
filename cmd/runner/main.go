@@ -17,7 +17,9 @@ import (
 	"github.com/alokemajumder/AegisClaw/internal/grpcutil"
 	aegisnats "github.com/alokemajumder/AegisClaw/internal/nats"
 	"github.com/alokemajumder/AegisClaw/internal/observability"
+	"github.com/alokemajumder/AegisClaw/internal/playbook"
 	"github.com/alokemajumder/AegisClaw/internal/sandbox"
+	sandboxadapter "github.com/alokemajumder/AegisClaw/internal/sandbox/adapter"
 )
 
 func main() {
@@ -80,7 +82,13 @@ func main() {
 	} else {
 		logger.Info("sandbox execution disabled (in-process fallback)")
 	}
-	_ = sandboxMgr // Will be wired to RunEngine when gRPC proto is available
+	// Wire sandbox manager to playbook executor so simulation actions run isolated
+	pbExecutor := playbook.NewExecutor(nil, logger)
+	if sandboxMgr.IsEnabled() {
+		pbExecutor.SetSandbox(sandboxadapter.New(sandboxMgr))
+		logger.Info("playbook executor wired to sandbox manager")
+	}
+	_ = pbExecutor // Will be passed to RunEngine / gRPC handler when proto is available
 
 	// Set up gRPC server
 	grpcPort := cfg.Server.GRPCBasePort + 1 // 9091 by default (base 9090 + 1)

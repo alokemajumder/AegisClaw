@@ -72,6 +72,9 @@ func (s *Service) Generate(ctx context.Context, orgID uuid.UUID, cfg ReportConfi
 	case "json":
 		content, err = RenderJSON(cfg, data)
 		contentType = "application/json"
+	case "pdf":
+		content, err = RenderPDF(cfg, data)
+		contentType = "application/pdf"
 	default:
 		md := RenderMarkdown(cfg, data)
 		content = []byte(md)
@@ -135,6 +138,9 @@ func (s *Service) GenerateAsync(ctx context.Context, report *models.Report, orgI
 	case "json":
 		content, err = RenderJSON(cfg, data)
 		contentType = "application/json"
+	case "pdf":
+		content, err = RenderPDF(cfg, data)
+		contentType = "application/pdf"
 	default:
 		md := RenderMarkdown(cfg, data)
 		content = []byte(md)
