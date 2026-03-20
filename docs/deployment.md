@@ -198,28 +198,41 @@ ollama:
   timeout_seconds: 120
 
 # NVIDIA NIM — optional high-performance LLM backend (alternative to Ollama)
-# Supports consumer GPUs (RTX 4090/5090), workstation, DGX, or cloud API.
-# See docs/nvidia-deployment.md for full GPU sizing and cost guide.
+# Uses Nemotron 3 models with hybrid Mamba-Transformer MoE, 1M context, tool-calling.
+# See https://build.nvidia.com and docs/nvidia-deployment.md for full guide.
 nvidia_nim:
   enabled: false
   url: https://integrate.api.nvidia.com/v1   # Cloud API, or http://localhost:8000/v1 for self-hosted
   api_key_ref: AEGISCLAW_NVIDIA_NIM_API_KEY  # Environment variable holding the API key
-  default_model: nvidia/nemotron-super-49b-v1
+  default_model: nvidia/nemotron-3-super-120b-a12b
   model_allowlist:
-    - nvidia/nemotron-nano-8b-v1       # RTX 4090/5090 (24GB) — SMB optimized
-    - nvidia/nemotron-super-49b-v1     # 2xRTX or A100 — best quality/cost
-    - nvidia/nemotron-ultra-253b-v1    # DGX — maximum reasoning
+    - nvidia/nemotron-3-nano-30b-a3b         # RTX 4090/5090 (24GB) — 30B MoE, 3B active. Best SMB value.
+    - nvidia/nemotron-3-super-120b-a12b      # 2xRTX or A100 — 120B MoE, 12B active. Multi-agent enterprise.
+    - nvidia/llama-nemotron-ultra-253b       # DGX — maximum reasoning
+    - nvidia/nemotron-nano-vl-12b            # Vision-language: document/video analysis
+    - nvidia/nemotron-safety                 # Multilingual safety classification
+    - deepseek-ai/deepseek-v3.2             # 685B, 128K context, strict function calling
     - meta/llama-3.3-70b-instruct
-    - deepseek-ai/deepseek-r1
   timeout_seconds: 120
+  thinking_budget: 0                         # Reasoning depth 0-10 (0=default, higher=deeper/slower)
 
-# NeMo Guardrails — optional prompt safety layer
+# NeMo Guardrails — optional prompt safety layer (https://developer.nvidia.com/nemo-guardrails)
 # nemo_guardrails:
 #   enabled: false
 #   content_safety_url: http://localhost:8180/v1
 #   jailbreak_url: http://localhost:8181/v1
 #   topic_control_url: http://localhost:8182/v1
 #   timeout_seconds: 10
+
+# NVIDIA OpenShell — optional agent sandboxing (https://docs.nvidia.com/openshell/latest/index.html)
+# sandbox:
+#   enabled: false
+#   runtime_url: https://localhost:8765
+#   auth_mode: mtls               # mtls, token, or none
+#   cert_file: /etc/aegisclaw/certs/client.crt
+#   key_file: /etc/aegisclaw/certs/client.key
+#   ca_file: /etc/aegisclaw/certs/ca.crt
+#   gpu: false                    # GPU passthrough for in-sandbox inference
 
 auth:
   jwt_secret: dev-secret-change-in-production
@@ -247,8 +260,9 @@ observability:
 | `nats`          | NATS URL, reconnect behavior                                     |
 | `minio`         | MinIO/S3 endpoint, credentials, bucket name                      |
 | `ollama`        | Ollama URL, default model, model allowlist, timeout               |
-| `nvidia_nim`    | NVIDIA NIM endpoint, API key, Nemotron model allowlist (optional) |
-| `nemo_guardrails` | NeMo Guardrails NIM endpoints for prompt safety (optional)      |
+| `nvidia_nim`    | [NVIDIA NIM](https://build.nvidia.com) endpoint, API key, [Nemotron 3](https://developer.nvidia.com/nemotron) model allowlist, thinking budget (optional) |
+| `nemo_guardrails` | [NeMo Guardrails](https://developer.nvidia.com/nemo-guardrails) NIM endpoints for prompt safety (optional) |
+| `sandbox`       | [NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/index.html) Gateway URL, auth mode (mTLS/token/none), GPU passthrough (optional) |
 | `server`        | API port, gRPC port, CORS origins, playbook directory             |
 | `policy`        | Default playbook pack, rate limits, concurrency cap               |
 | `observability` | OTEL tracing endpoint, Prometheus metrics port, log level         |
@@ -279,11 +293,11 @@ The file `deploy/docker-compose.yml` defines all services, infrastructure, and n
 | -------------------- | --------- | ----------- | --------------------------------------- | ----------------- |
 | `api-gateway`        | --        | 8080        | REST API gateway (Chi router)           | 1 CPU, 512 MB     |
 | `orchestrator`       | 9090      | 10090       | Engagement & agent squad orchestration  | 1 CPU, 512 MB     |
-| `runner`             | 9091      | 10091       | Validation step execution               | 1 CPU, 512 MB     |
+| `runner`             | 9091      | 10091       | Validation step execution ([OpenShell](https://docs.nvidia.com/openshell/latest/index.html) sandbox or in-process) | 1 CPU, 512 MB     |
 | `evidence-service`   | 9092      | 10092       | Evidence collection & MinIO storage     | 0.5 CPU, 256 MB   |
 | `connector-service`  | 9093      | 10093       | External tool integrations              | 0.5 CPU, 256 MB   |
 | `reporting-service`  | 9094      | 10094       | Report generation                       | 0.5 CPU, 256 MB   |
-| `ollama-bridge`      | 9095      | 10095       | LLM reasoning proxy to Ollama           | 0.5 CPU, 256 MB   |
+| `ollama-bridge`      | 9095      | 10095       | LLM reasoning proxy (Ollama / [NIM](https://build.nvidia.com) + [Nemotron 3](https://developer.nvidia.com/nemotron)) | 0.5 CPU, 256 MB   |
 | `scheduler`          | 9096      | 10096       | Cron-based engagement scheduling        | 0.5 CPU, 256 MB   |
 | `web`                | --        | 3000        | Next.js frontend                        | 0.5 CPU, 256 MB   |
 

@@ -133,7 +133,7 @@ All Go services expose `/healthz` HTTP endpoints. The API gateway uses port 8080
 Look for issues tagged with `good-first-issue` — these are accessible for newcomers.
 
 ### Connector Development
-Adding new connectors is a great way to contribute. The platform currently ships 11 connectors (Sentinel, Splunk, Elastic, Defender, CrowdStrike, ServiceNow, Jira, Teams, Slack, Entra ID, Okta). See [Connector Development Guide](docs/connector-development.md).
+Adding new connectors is a great way to contribute. The platform currently ships 12 connectors (Sentinel, Splunk, Elastic, Defender, CrowdStrike, ServiceNow, Jira, Teams, Slack, Entra ID, Okta, [NVIDIA Morpheus](https://developer.nvidia.com/morpheus-cybersecurity)). See [Connector Development Guide](docs/connector-development.md).
 
 ### Agent Development
 The platform uses 12 agents across 4 squads, all wired into a 3-phase `RunEngine` pipeline. Agents implement the `agentsdk.Agent` interface (`Name`, `Squad`, `Init`, `HandleTask`, `Shutdown`). Dependencies are injected via `agentsdk.AgentDeps` using `any`-typed fields to avoid circular imports — agents type-assert in their `Init()` methods. Key security principles for agent development:

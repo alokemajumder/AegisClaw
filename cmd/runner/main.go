@@ -60,9 +60,23 @@ func main() {
 		MaxMemoryMB:    cfg.Sandbox.MaxMemoryMB,
 		MaxCPUCores:    cfg.Sandbox.MaxCPUCores,
 		NetworkPolicy:  cfg.Sandbox.NetworkPolicy,
+		Image:          cfg.Sandbox.Image,
+		GPU:            cfg.Sandbox.GPU,
+		OllamaURL:      cfg.Ollama.URL,
+		Gateway: sandbox.GatewayConfig{
+			URL:      cfg.Sandbox.RuntimeURL,
+			AuthMode: cfg.Sandbox.AuthMode,
+			CertFile: cfg.Sandbox.CertFile,
+			KeyFile:  cfg.Sandbox.KeyFile,
+			CAFile:   cfg.Sandbox.CAFile,
+			Token:    cfg.Sandbox.GatewayToken,
+		},
 	}, logger)
 	if sandboxMgr.IsEnabled() {
 		logger.Info("sandbox execution enabled", "runtime_url", cfg.Sandbox.RuntimeURL)
+		if err := sandboxMgr.ConnectGateway(ctx); err != nil {
+			logger.Warn("OpenShell gateway connection failed (in-process fallback)", "error", err)
+		}
 	} else {
 		logger.Info("sandbox execution disabled (in-process fallback)")
 	}

@@ -23,6 +23,15 @@ Security teams run periodic red/blue exercises and hope their controls hold in b
 
 Every validation run produces a cryptographically signed receipt. Every finding is backed by evidence. All data stays in your network.
 
+### NVIDIA-Accelerated AI Security
+
+AegisClaw integrates deeply with the [NVIDIA AI agent ecosystem](https://nvidianews.nvidia.com/news/ai-agents) to deliver enterprise-grade LLM reasoning and sandboxed agent execution:
+
+- **[NVIDIA NIM](https://build.nvidia.com)** — Optimized inference microservices for [Nemotron](https://developer.nvidia.com/nemotron) models with configurable thinking budgets and OpenAI-compatible tool-calling
+- **[NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/index.html)** — Apache 2.0 runtime for sandboxed agent execution with Landlock LSM, seccomp, network namespacing, and a Privacy Router for secure LLM inference
+- **[NeMoClaw](https://build.nvidia.com/nemoclaw)** — Always-on assistant stack powering AegisClaw's multi-agent orchestration with 34+ hosted models
+- **[NVIDIA Morpheus](https://developer.nvidia.com/morpheus-cybersecurity)** — GPU-accelerated security analytics via Triton Inference Server for real-time threat detection
+
 ## Quick Start
 
 ```bash
@@ -85,20 +94,22 @@ See the [Deployment Guide](docs/deployment.md) for production setup, hardening, 
 
 **Audit-Grade Evidence** — Every run produces HMAC-SHA256 signed receipts capturing scope, steps, evidence, and outcomes. Findings are deduplicated via SHA256 clustering. All artifacts stored in an immutable MinIO vault.
 
-**11 Connectors** — Query telemetry from your SIEM, verify detections in your EDR, create tickets in your ITSM, and send notifications — all through a settings-driven UI with no code changes required.
+**12 Connectors** — Query telemetry from your SIEM, verify detections in your EDR, create tickets in your ITSM, run GPU-accelerated analytics, and send notifications — all through a settings-driven UI with no code changes required.
 
 | Category | Connectors |
 |----------|------------|
 | SIEM | Sentinel, Splunk, Elastic Security |
 | EDR/XDR | Defender for Endpoint, CrowdStrike Falcon |
 | ITSM | ServiceNow, Jira Service Management |
+| Analytics | [NVIDIA Morpheus](https://developer.nvidia.com/morpheus-cybersecurity) (GPU-accelerated threat detection via Triton) |
 | Notifications | Teams, Slack |
 | Identity | Entra ID, Okta |
 
-**Flexible LLM Backend** — Runs on any hardware from a $200 used GPU to NVIDIA DGX:
+**Flexible LLM Backend** — Runs on any hardware from a $200 used GPU to [NVIDIA DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/):
 - **Ollama** (default) — Free, open-source, runs on consumer GPUs (RTX 3060+) or CPU-only
-- **NVIDIA NIM** — Nemotron models via API Catalog or self-hosted on RTX/DGX hardware
-- **NeMo Guardrails** — Optional content safety, jailbreak detection, and topic control for LLM prompts
+- **[NVIDIA NIM](https://build.nvidia.com)** — [Nemotron 3](https://developer.nvidia.com/nemotron) models (Nano 30B, Super 120B, Ultra 253B) with hybrid Mamba-Transformer MoE architecture, 1M context windows, configurable thinking budgets, and OpenAI-compatible [tool-calling](https://docs.nvidia.com/nim/large-language-models/latest/function-calling.html) for agent function invocation
+- **[NeMo Guardrails](https://developer.nvidia.com/nemo-guardrails)** — Optional content safety, jailbreak detection, and topic control NIMs for LLM prompt safety
+- **[NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/index.html)** — Sandboxed agent execution with 4-layer isolation (Landlock LSM, seccomp, network namespacing, Privacy Router) and tier-based policy generation
 
 All reasoning stays within your infrastructure. See the [NVIDIA Deployment Guide](docs/nvidia-deployment.md) for GPU sizing and cost optimization.
 
@@ -113,8 +124,10 @@ All reasoning stays within your infrastructure. See the [NVIDIA Deployment Guide
 | Database | PostgreSQL 16 (16 tables, golang-migrate) |
 | Messaging | NATS + JetStream (5 streams) |
 | Evidence | MinIO (S3-compatible) |
-| LLM | Ollama (local, free) or NVIDIA NIM + Nemotron (high-perf) |
-| LLM Safety | NeMo Guardrails (content safety, jailbreak detection) |
+| LLM | Ollama (local, free) or [NVIDIA NIM](https://build.nvidia.com) + [Nemotron 3](https://developer.nvidia.com/nemotron) (high-perf, 1M context, tool-calling) |
+| LLM Safety | [NeMo Guardrails](https://developer.nvidia.com/nemo-guardrails) (content safety, jailbreak detection) |
+| Agent Sandbox | [NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/index.html) (Landlock + seccomp + netns isolation) |
+| Analytics | [NVIDIA Morpheus](https://developer.nvidia.com/morpheus-cybersecurity) (GPU-accelerated security analytics) |
 | Observability | OpenTelemetry, Prometheus, Grafana, Jaeger |
 
 ## Documentation
@@ -124,7 +137,7 @@ All reasoning stays within your infrastructure. See the [NVIDIA Deployment Guide
 | **[Architecture](docs/architecture.md)** | Services, agent squads, data flows, NATS streams, database schema |
 | **[Security Model](docs/security-model.md)** | Governance tiers, safety controls, auth, RBAC, threat model |
 | **[Deployment Guide](docs/deployment.md)** | Docker Compose, production hardening, backup/restore, CLI, troubleshooting |
-| **[NVIDIA GPU Deployment](docs/nvidia-deployment.md)** | GPU sizing, NIM setup, Nemotron models, cost optimization for SMB to enterprise |
+| **[NVIDIA GPU Deployment](docs/nvidia-deployment.md)** | GPU sizing, [NIM](https://build.nvidia.com) setup, [Nemotron 3](https://developer.nvidia.com/nemotron) models, [OpenShell](https://docs.nvidia.com/openshell/latest/index.html) sandboxing, cost optimization |
 | **[Connector Development](docs/connector-development.md)** | Build custom connectors using the Connector SDK |
 | **[Playbook Authoring](docs/playbook-authoring.md)** | Create validation playbooks (YAML format) |
 
@@ -136,7 +149,7 @@ AegisClaw/
 ├── internal/      Shared packages (config, auth, database, nats, policy, receipt, evidence, ...)
 ├── pkg/           Public SDKs (connectorsdk, agentsdk)
 ├── agents/        12 agents across 4 squads
-├── connectors/    11 connector implementations
+├── connectors/    12 connector implementations
 ├── playbooks/     13 validation playbooks (Tier 0-2)
 ├── web/           Next.js frontend (15 pages)
 ├── deploy/        Docker Compose, Dockerfiles, scripts
@@ -149,26 +162,26 @@ AegisClaw/
 ### Complete
 - Core platform with 8 Go microservices + CLI + Next.js frontend
 - Full end-to-end validation pipeline (12 agents, 3-phase RunEngine)
-- 11 connectors (SIEM, EDR, ITSM, Notifications, Identity)
+- 12 connectors (SIEM, EDR, ITSM, Analytics, Notifications, Identity) including [NVIDIA Morpheus](https://developer.nvidia.com/morpheus-cybersecurity)
 - 13 playbooks with real execution (SIEM queries, EDR health, EICAR markers, detection verification)
 - Evidence vault, finding dedup, HMAC-SHA256 receipt signing
 - JWT auth, RBAC, token blacklisting, account lockout, kill switch
 - Docker Compose with health checks, resource limits, graceful shutdown
 - Production audit: 22 security fixes, connection pool hardening, input validation
-- NVIDIA NIM integration with Nemotron model support
-- NeMo Guardrails integration (content safety, jailbreak detection)
-- GPU deployment profiles for consumer GPUs (RTX 3060-5090) through DGX
+- [NVIDIA NIM](https://build.nvidia.com) integration with [Nemotron 3](https://developer.nvidia.com/nemotron) model family (Nano 30B, Super 120B, Ultra 253B — hybrid Mamba-Transformer MoE, 1M context)
+- [NeMo Guardrails](https://developer.nvidia.com/nemo-guardrails) integration (content safety, jailbreak detection, topic control)
+- GPU deployment profiles for consumer GPUs (RTX 3060-5090) through [DGX Spark](https://www.nvidia.com/en-us/products/workstations/dgx-spark/)
+- [NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/index.html) agent sandboxing — Gateway v1 API client, tier-based policy generation, [Privacy Router](https://docs.nvidia.com/openshell/latest/index.html) for secure LLM inference
+- SSE (Server-Sent Events) real-time updates — NATS-to-browser bridge with global and per-run event streams
+- [NeMoClaw](https://build.nvidia.com/nemoclaw) multi-agent orchestration with configurable thinking budgets and tool-calling
 
 ### In Progress
-- NemoClaw/OpenShell agent sandboxing (replacing gVisor)
 - PDF report renderer
-- WebSocket/SSE real-time updates
 - Kubernetes Helm chart
 - Integration and end-to-end tests
 
 ### Planned
 - Full ATT&CK coverage heatmap visualization
-- NVIDIA Morpheus integration for GPU-accelerated detection validation
 - SSO/OIDC integration
 - HA and backup/restore automation
 - Vertical-specific playbook packs

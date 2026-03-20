@@ -26,15 +26,22 @@ type Config struct {
 
 // SandboxConfig holds NemoClaw/OpenShell sandbox configuration.
 // When enabled, agent execution steps run inside Landlock+seccomp+netns sandboxes
-// matching the governance tier policy.
+// matching the governance tier policy via the OpenShell Gateway.
 type SandboxConfig struct {
 	Enabled        bool   `mapstructure:"enabled"`
-	RuntimeURL     string `mapstructure:"runtime_url"`     // OpenShell runtime endpoint
+	RuntimeURL     string `mapstructure:"runtime_url"`     // OpenShell Gateway endpoint (e.g. https://localhost:9090)
 	PolicyDir      string `mapstructure:"policy_dir"`      // Directory containing .yaml policy files
 	TimeoutSeconds int    `mapstructure:"timeout_seconds"` // Per-step execution timeout
 	MaxMemoryMB    int    `mapstructure:"max_memory_mb"`   // Memory limit per sandbox
 	MaxCPUCores    int    `mapstructure:"max_cpu_cores"`   // CPU core limit per sandbox
 	NetworkPolicy  string `mapstructure:"network_policy"`  // Default network policy (deny_all, allow_connectors, allow_all)
+	Image          string `mapstructure:"image"`           // Sandbox base image (base, ollama, openclaw)
+	GPU            bool   `mapstructure:"gpu"`             // Enable GPU passthrough for inference in sandboxes
+	AuthMode       string `mapstructure:"auth_mode"`       // Gateway auth: mtls, token, none
+	CertFile       string `mapstructure:"cert_file"`       // Client cert for mTLS
+	KeyFile        string `mapstructure:"key_file"`        // Client key for mTLS
+	CAFile         string `mapstructure:"ca_file"`         // CA cert for mTLS
+	GatewayToken   string `mapstructure:"gateway_token"`   // Bearer token for token auth
 }
 
 type ServerConfig struct {
@@ -93,15 +100,16 @@ type OllamaConfig struct {
 // NVIDIANIMConfig holds NVIDIA NIM / NeMoClaw configuration.
 // When enabled, NIM is used as the primary LLM backend (with Ollama as fallback).
 // Supports NVIDIA API Catalog (build.nvidia.com), self-hosted NIM on DGX/RTX,
-// and consumer GPUs (RTX 4090/5090) for cost-optimized SMB deployments.
+// consumer GPUs (RTX 4090/5090), and NemoClaw always-on assistants.
 type NVIDIANIMConfig struct {
 	Enabled        bool     `mapstructure:"enabled"`
-	URL            string   `mapstructure:"url"`             // NIM API endpoint (e.g. https://integrate.api.nvidia.com/v1)
-	APIKey         string   `mapstructure:"api_key"`         // NVIDIA API key (required for cloud, optional for self-hosted)
-	APIKeyRef      string   `mapstructure:"api_key_ref"`     // Environment variable holding the API key
-	DefaultModel   string   `mapstructure:"default_model"`   // e.g. nvidia/nemotron-super-49b-v1
-	ModelAllowlist []string `mapstructure:"model_allowlist"` // Allowed NIM models
+	URL            string   `mapstructure:"url"`              // NIM API endpoint (e.g. https://integrate.api.nvidia.com/v1)
+	APIKey         string   `mapstructure:"api_key"`          // NVIDIA API key (required for cloud, optional for self-hosted)
+	APIKeyRef      string   `mapstructure:"api_key_ref"`      // Environment variable holding the API key
+	DefaultModel   string   `mapstructure:"default_model"`    // e.g. nvidia/nemotron-3-super-120b-a12b
+	ModelAllowlist []string `mapstructure:"model_allowlist"`  // Allowed NIM models
 	TimeoutSeconds int      `mapstructure:"timeout_seconds"`
+	ThinkingBudget int      `mapstructure:"thinking_budget"`  // Reasoning depth 0-10 (0=default, higher=deeper/slower)
 }
 
 // NeMoGuardrailsConfig holds NeMo Guardrails NIM configuration.
@@ -175,8 +183,9 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("ollama.timeout_seconds", 120)
 	v.SetDefault("nvidia_nim.enabled", false)
 	v.SetDefault("nvidia_nim.url", "https://integrate.api.nvidia.com/v1")
-	v.SetDefault("nvidia_nim.default_model", "nvidia/nemotron-super-49b-v1")
+	v.SetDefault("nvidia_nim.default_model", "nvidia/nemotron-3-super-120b-a12b")
 	v.SetDefault("nvidia_nim.timeout_seconds", 120)
+	v.SetDefault("nvidia_nim.thinking_budget", 0)
 	v.SetDefault("nemo_guardrails.enabled", false)
 	v.SetDefault("nemo_guardrails.content_safety_url", "http://localhost:8180/v1")
 	v.SetDefault("nemo_guardrails.jailbreak_url", "http://localhost:8181/v1")
@@ -189,6 +198,9 @@ func Load(configPath string) (*Config, error) {
 	v.SetDefault("sandbox.max_memory_mb", 2048)
 	v.SetDefault("sandbox.max_cpu_cores", 2)
 	v.SetDefault("sandbox.network_policy", "deny_all")
+	v.SetDefault("sandbox.image", "base")
+	v.SetDefault("sandbox.gpu", false)
+	v.SetDefault("sandbox.auth_mode", "none")
 	v.SetDefault("auth.token_expiry", "15m")
 	v.SetDefault("auth.refresh_expiry", "7d")
 	v.SetDefault("auth.receipt_hmac_key", "dev-receipt-key-change-in-production")

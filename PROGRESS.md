@@ -1,6 +1,6 @@
 # AegisClaw — Implementation Progress
 
-> Last updated: 2026-03-19 (Session 11)
+> Last updated: 2026-03-20 (Session 12)
 
 ---
 
@@ -435,16 +435,28 @@ Comprehensive security audit of all 12 agents identified and fixed 22 findings (
 - [x] Migration CLI: `api-gateway migrate` subcommand wired to `database.RunMigrations()` (was broken)
 - [x] `.gitignore`: Added `!.env.example` exception, added root-level `.next/` and `node_modules/` patterns
 
-### NemoClaw/OpenShell Sandboxing (Session 11)
+### NemoClaw/OpenShell Sandboxing (Sessions 11–12)
 
-- [x] `internal/sandbox/openshell.go` — Sandbox manager with governance tier-to-policy mapping (Tier 0–3)
-- [x] `SandboxPolicy` struct: NetworkRules, FilesystemMode, DeniedSyscalls, resource limits per tier
-- [x] Default-deny network policy with per-connector egress rules + DNS allowance
-- [x] `SandboxConfig` added to `internal/config/config.go` with env var support and defaults
-- [x] Runner service (`cmd/runner/main.go`) wired to sandbox manager (in-process fallback when OpenShell runtime not deployed)
-- [ ] OpenShell HTTP client integration (POST /v1/execute) — requires deployed NemoClaw runtime
+- [x] `internal/sandbox/openshell.go` — Sandbox manager with OpenShell Gateway integration
+- [x] `internal/sandbox/gateway.go` — Full OpenShell Gateway HTTP client (mTLS, token, plaintext auth)
+  - Sandbox lifecycle: Create, Get, List, Delete, UploadFile, DownloadFile
+  - Policy management: GetPolicy, SetPolicy (hot-reloadable network policies), ListPolicies
+  - Inference routing: SetInferenceProvider, GetInferenceConfig (Privacy Router)
+  - Health: GatewayHealth
+  - OpenShell v1 types: OpenShellPolicy, FilesystemPolicy, LandlockPolicy, ProcessPolicy, NetworkPolicy, NetworkEndpoint, BinaryRule
+- [x] `internal/sandbox/policy.go` — OpenShell v1 policy generator from governance tiers
+  - Tier 0: read-only FS, REST/read-only connector egress, hard Landlock, /usr/bin/curl only
+  - Tier 1: /sandbox+/tmp write, connectors+DNS, curl+python3
+  - Tier 2: /sandbox+/tmp write, connectors read-write+DNS, curl+python3+bash
+  - Tier 3: always rejected
+  - ValidatePolicy: version, absolute paths, no traversal, max 256 paths, no root user
+  - GenerateInferencePolicy: host.openshell.internal for Privacy Router LLM access
+- [x] Manager.ConnectGateway: establishes gateway connection, configures inference routing
+- [x] Manager.Execute: creates per-step sandbox, applies policy, auto-cleanup on completion
+- [x] SandboxConfig extended: Image, GPU, AuthMode, CertFile, KeyFile, CAFile, GatewayToken
+- [x] Runner wires full gateway config and calls ConnectGateway on startup
 - [ ] Runner ↔ Orchestrator gRPC communication protocol
-- [ ] Sandbox cleanup and artifact extraction
+- [ ] Sandbox agent binary for in-sandbox execution (reads inputs.json, writes outputs.json)
 
 ### NVIDIA Morpheus Connector (Session 11)
 

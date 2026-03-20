@@ -78,9 +78,10 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 - **Health**: `:10090/healthz`
 
 ### Runner (`:9091`)
-- **Technology**: Go + gRPC
-- **Role**: Execution of validation steps with cleanup verification (gVisor sandboxing planned for Phase 2, currently runs in-process)
-- **Communicates with**: Orchestrator (task receipt), Evidence Service (artifact storage)
+- **Technology**: Go + gRPC + [NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/index.html)
+- **Role**: Execution of validation steps with cleanup verification. Supports sandboxed execution via [OpenShell Gateway](https://docs.nvidia.com/openshell/latest/index.html) with 4-layer isolation (Landlock LSM, seccomp, network namespacing, [Privacy Router](https://docs.nvidia.com/openshell/latest/index.html) for secure LLM inference). Falls back to in-process execution when sandboxing is disabled.
+- **Sandbox features**: Tier-based policy generation (Tier 0: read-only/passive, Tier 1: limited write/benign, Tier 2: connector access/sensitive), mTLS/token/plaintext Gateway auth, automatic sandbox lifecycle management, [OpenShell Privacy Router](https://docs.nvidia.com/openshell/latest/index.html) routes `inference.local` calls to Ollama or [NVIDIA NIM](https://build.nvidia.com) backends
+- **Communicates with**: Orchestrator (task receipt), Evidence Service (artifact storage), OpenShell Gateway (sandbox management)
 - **Health**: `:10091/healthz`
 
 ### Evidence Service (`:9092`)
@@ -102,10 +103,11 @@ AegisClaw is a microservices-based platform built in Go with a Next.js frontend.
 
 ### Ollama Bridge (`:9095`)
 - **Technology**: Go + gRPC
-- **Role**: LLM proxy with prompt governance, evidence anchoring, model allowlisting, guardrails
-- **Backends**: Ollama (`:11434`, default) or NVIDIA NIM with Nemotron models (optional high-performance alternative)
-- **Safety**: Optional NeMo Guardrails integration (content safety, jailbreak detection, topic control)
-- **Communicates with**: Ollama and/or NIM endpoint; NeMo Guardrails NIMs (when enabled); readiness check reports active backend and guardrails status
+- **Role**: LLM proxy with prompt governance, evidence anchoring, model allowlisting, guardrails, and [tool-calling](https://docs.nvidia.com/nim/large-language-models/latest/function-calling.html) for agent function invocation
+- **Backends**: Ollama (`:11434`, default) or [NVIDIA NIM](https://build.nvidia.com) with [Nemotron 3](https://developer.nvidia.com/nemotron) models (optional high-performance alternative with hybrid Mamba-Transformer MoE architecture, 1M context, configurable thinking budgets). Powered by [NeMoClaw](https://build.nvidia.com/nemoclaw) always-on assistant stack.
+- **NIM models**: [Nemotron 3 Nano 30B](https://developer.nvidia.com/nemotron) (RTX 4090/5090), [Nemotron 3 Super 120B](https://developer.nvidia.com/nemotron) (multi-agent enterprise), [Nemotron Ultra 253B](https://developer.nvidia.com/nemotron) (DGX), [Nemotron Nano VL 12B](https://developer.nvidia.com/nemotron) (vision-language), [Nemotron Safety](https://developer.nvidia.com/nemotron) (multilingual guardrails), [DeepSeek V3](https://build.nvidia.com) (strict function calling)
+- **Safety**: Optional [NeMo Guardrails](https://developer.nvidia.com/nemo-guardrails) integration (content safety, jailbreak detection, topic control)
+- **Communicates with**: Ollama and/or [NIM](https://build.nvidia.com) endpoint; [NeMo Guardrails](https://developer.nvidia.com/nemo-guardrails) NIMs (when enabled); readiness check reports active backend and guardrails status
 - **Health**: `:10095/healthz`
 
 ### Scheduler (`:9096`)
@@ -127,7 +129,7 @@ AegisClaw uses 12 autonomous agents organized into 4 squads. All 12 agents are w
 | **Governance** | ApprovalGate | Creates DB-backed approval records for Tier 2+ actions. Blocks execution until human decision. |
 | **Governance** | ReceiptAgent | Generates HMAC-SHA256 signed, tamper-evident run receipts with full step data, scope snapshot, and evidence manifest. Stores in MinIO. Generates findings when receipts are unsigned or signing fails. |
 | **Emulation** | Planner | Loads validation playbooks from YAML, filters by allowed tiers, generates ordered step list. |
-| **Emulation** | Executor | Executes playbook steps in-process with real operations (SIEM queries, EDR health checks, EICAR marker files, allowlisted commands, detection verification, cleanup checks). gVisor sandboxing planned. |
+| **Emulation** | Executor | Executes playbook steps with real operations (SIEM queries, EDR health checks, EICAR marker files, allowlisted commands, detection verification, cleanup checks). Supports [NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/index.html) sandboxed execution with tier-based policies when enabled, in-process fallback otherwise. |
 | **Emulation** | EvidenceAgent | Captures execution artifacts as JSON and uploads to MinIO evidence vault. |
 | **Validation** | TelemetryVerifier | Queries SIEM/EDR connectors for expected telemetry matching the executed technique. |
 | **Validation** | DetectionEvaluator | Queries EDR for alerts, measures detection latency, generates detection gap findings. |

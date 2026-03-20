@@ -163,6 +163,8 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 ### Data Locality
 - All data stays within the customer network/VPC
 - Ollama runs locally — no external LLM API calls
+- [NVIDIA NIM](https://build.nvidia.com) can be self-hosted on-premise (RTX/DGX) or used via [NVIDIA API Catalog](https://build.nvidia.com) (cloud) depending on data sovereignty requirements
+- [OpenShell Privacy Router](https://docs.nvidia.com/openshell/latest/index.html) ensures sandboxed agents never see real LLM provider credentials — all inference calls route through `inference.local` on the gateway
 - External enrichment sources are disabled by default (configurable allowlist)
 
 ### Redaction
@@ -177,10 +179,15 @@ AegisClaw enforces a layered security model with multiple non-bypassable control
 - Supported auth methods: API keys, OAuth2, service principals, certificates
 - Credentials validated at connection test time, never logged
 
-### Network Isolation
-- Runner currently executes in-process (gVisor sandboxing with deny-by-default egress planned for Phase 2)
-- Egress controlled via allowlisted destinations only (planned)
-- Per-connector network scoping possible via runner segmentation (planned)
+### Network Isolation via [NVIDIA OpenShell](https://docs.nvidia.com/openshell/latest/index.html)
+- Runner supports sandboxed execution via [OpenShell Gateway](https://docs.nvidia.com/openshell/latest/index.html) with 4-layer isolation:
+  - **[Landlock LSM](https://docs.nvidia.com/openshell/latest/index.html)**: Filesystem access control — read-only for Tier 0, limited write for Tier 1, connector-scoped write for Tier 2
+  - **[seccomp](https://docs.nvidia.com/openshell/latest/index.html)**: System call filtering restricts process capabilities per governance tier
+  - **Network namespacing**: Deny-by-default egress with per-tier allowlists — Tier 0 allows REST/443 only, Tier 1 adds configured connector endpoints and DNS, Tier 2 allows read-write connector access
+  - **[Privacy Router](https://docs.nvidia.com/openshell/latest/index.html)**: Sandboxes call `inference.local`, Gateway routes to Ollama/[NIM](https://build.nvidia.com) — strips sandbox credentials, injects real provider credentials via `host.openshell.internal`
+- Gateway authentication: mTLS (X.509 client certificates), bearer token, or plaintext (trusted proxy)
+- Per-sandbox lifecycle: created per execution step, automatically cleaned up on completion
+- Falls back to in-process execution when OpenShell is disabled
 
 ## Threat Model
 

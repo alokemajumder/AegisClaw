@@ -75,14 +75,16 @@ func main() {
 		nimModels := cfg.NVIDIANIMM.ModelAllowlist
 		if len(nimModels) == 0 {
 			nimModels = []string{
-				// Nemotron models — optimized for agentic security workflows
-				"nvidia/nemotron-super-49b-v1",             // Recommended: best quality/cost for agentic tasks
-				"nvidia/nemotron-nano-8b-v1",               // Lightweight: fits on RTX 4090/5090 (24GB VRAM)
-				"nvidia/nemotron-ultra-253b-v1",             // Maximum reasoning: requires multi-GPU or DGX
-				// Open models via NIM
+				// Nemotron 3 models — hybrid Mamba-Transformer MoE, 1M context
+				"nvidia/nemotron-3-nano-30b-a3b",        // 30B MoE (3B active), RTX 4090/5090. Best SMB value.
+				"nvidia/nemotron-3-super-120b-a12b",     // 120B MoE (12B active), multi-agent enterprise.
+				"nvidia/llama-nemotron-ultra-253b",      // Maximum reasoning: DGX / multi-GPU.
+				"nvidia/nemotron-nano-vl-12b",           // Vision-language: document/video analysis.
+				// Specialized models
+				"nvidia/nemotron-safety",                // Multilingual safety classification.
+				// Open models via NIM (tool-calling capable)
+				"deepseek-ai/deepseek-v3.2",             // 685B, 128K context, strict function calling.
 				"meta/llama-3.3-70b-instruct",
-				"meta/llama-3.1-405b-instruct",
-				"deepseek-ai/deepseek-r1",
 			}
 		}
 
@@ -93,6 +95,12 @@ func main() {
 			nimModels,
 			logger,
 		)
+
+		// Configure thinking budget for agent reasoning depth
+		if cfg.NVIDIANIMM.ThinkingBudget > 0 {
+			nimClient.SetThinkingBudget(cfg.NVIDIANIMM.ThinkingBudget)
+			logger.Info("NIM thinking budget configured", "budget", cfg.NVIDIANIMM.ThinkingBudget)
+		}
 
 		if nimClient.IsAvailable(ctx) {
 			logger.Info("NVIDIA NIM is available (primary LLM backend)",
