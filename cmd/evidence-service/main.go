@@ -73,7 +73,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		if err := store.HealthCheck(r.Context()); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"not_ready","service":"evidence-service","error":"minio: %s"}`, err.Error())
+			fmt.Fprintf(w, `{"status":"not_ready","service":"evidence-service","check":"minio"}`)
 			return
 		}
 		fmt.Fprintf(w, `{"status":"ready","service":"evidence-service"}`)

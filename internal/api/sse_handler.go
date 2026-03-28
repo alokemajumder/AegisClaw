@@ -151,6 +151,12 @@ func (h *Handler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	claims, ok := claimsFromRequest(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Missing authentication")
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming_unsupported", "Streaming not supported")
@@ -179,6 +185,8 @@ func (h *Handler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		close(ch)
 	}()
 
+	orgID := claims.OrgID.String()
+
 	// Send initial connection event
 	fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\"}\n\n")
 	flusher.Flush()
@@ -194,6 +202,10 @@ func (h *Handler) HandleSSE(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			return
 		case event := <-ch:
+			// Filter: only forward events belonging to this user's organization
+			if !isOrgEvent(event, orgID) {
+				continue
+			}
 			fmt.Fprintf(w, "event: %s\n", event.Event)
 			fmt.Fprintf(w, "data: %s\n", event.Data)
 			if event.ID != "" {
@@ -216,9 +228,22 @@ func (h *Handler) HandleRunSSE(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	claims, ok := claimsFromRequest(r)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthorized", "Missing authentication")
+		return
+	}
+
 	runID, err := parseUUID(r, "runID")
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_id", "Invalid run ID")
+		return
+	}
+
+	// Verify the run belongs to the authenticated user's organization
+	run, err := h.Runs.GetByID(r.Context(), runID)
+	if err != nil || run.OrgID != claims.OrgID {
+		writeError(w, http.StatusNotFound, "not_found", "Run not found")
 		return
 	}
 
@@ -287,6 +312,21 @@ func isRunEvent(event SSEEvent, runID string) bool {
 		return false
 	}
 	return payload.Payload.RunID == runID
+}
+
+// isOrgEvent checks if an SSE event belongs to a specific organization by inspecting the NATS envelope.
+func isOrgEvent(event SSEEvent, orgID string) bool {
+	var envelope struct {
+		OrgID string `json:"org_id"`
+	}
+	if err := json.Unmarshal([]byte(event.Data), &envelope); err != nil {
+		return false
+	}
+	// If the event has no org_id (e.g. global kill switch), allow it through
+	if envelope.OrgID == "" {
+		return true
+	}
+	return envelope.OrgID == orgID
 }
 
 // SetupSSEBroker initializes the SSE broker if NATS is available.

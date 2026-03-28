@@ -25,10 +25,11 @@ const userContextKey contextKey = "user"
 // Claims holds JWT token claims.
 type Claims struct {
 	jwt.RegisteredClaims
-	UserID uuid.UUID      `json:"user_id"`
-	OrgID  uuid.UUID      `json:"org_id"`
-	Email  string         `json:"email"`
-	Role   models.UserRole `json:"role"`
+	UserID    uuid.UUID      `json:"user_id"`
+	OrgID     uuid.UUID      `json:"org_id"`
+	Email     string         `json:"email"`
+	Role      models.UserRole `json:"role"`
+	TokenType string         `json:"token_type,omitempty"`
 }
 
 // TokenBlacklistStore abstracts persistent token blacklist storage.
@@ -144,17 +145,20 @@ func hashToken(token string) string {
 
 // GenerateToken creates a new JWT access token for a user.
 func (s *TokenService) GenerateToken(user *models.User) (string, error) {
+	now := time.Now()
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.tokenExpiry)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(now.Add(s.tokenExpiry)),
+			IssuedAt:  jwt.NewNumericDate(now),
 			Issuer:    "aegisclaw",
 			Subject:   user.ID.String(),
+			ID:        uuid.New().String(),
 		},
-		UserID: user.ID,
-		OrgID:  user.OrgID,
-		Email:  user.Email,
-		Role:   user.Role,
+		UserID:    user.ID,
+		OrgID:     user.OrgID,
+		Email:     user.Email,
+		Role:      user.Role,
+		TokenType: "access",
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -163,17 +167,20 @@ func (s *TokenService) GenerateToken(user *models.User) (string, error) {
 
 // GenerateRefreshToken creates a new JWT refresh token.
 func (s *TokenService) GenerateRefreshToken(user *models.User) (string, error) {
+	now := time.Now()
 	claims := Claims{
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(s.refreshExpiry)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(now.Add(s.refreshExpiry)),
+			IssuedAt:  jwt.NewNumericDate(now),
 			Issuer:    "aegisclaw",
 			Subject:   user.ID.String(),
+			ID:        uuid.New().String(),
 		},
-		UserID: user.ID,
-		OrgID:  user.OrgID,
-		Email:  user.Email,
-		Role:   user.Role,
+		UserID:    user.ID,
+		OrgID:     user.OrgID,
+		Email:     user.Email,
+		Role:      user.Role,
+		TokenType: "refresh",
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -218,6 +225,12 @@ func (s *TokenService) Middleware(next http.Handler) http.Handler {
 		claims, err := s.ValidateToken(tokenStr)
 		if err != nil {
 			writeJSONError(w, http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"invalid token"}}`)
+			return
+		}
+
+		// Reject refresh tokens being used as access tokens
+		if claims.TokenType == "refresh" {
+			writeJSONError(w, http.StatusUnauthorized, `{"error":{"code":"unauthorized","message":"invalid token type"}}`)
 			return
 		}
 

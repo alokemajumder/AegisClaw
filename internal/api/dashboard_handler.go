@@ -8,7 +8,8 @@ import (
 
 func (h *Handler) GetCoverage(w http.ResponseWriter, r *http.Request) {
 	claims, _ := claimsFromRequest(r)
-	entries, err := h.Coverage.ListByOrgID(r.Context(), claims.OrgID)
+	p := parsePagination(r)
+	entries, total, err := h.Coverage.ListByOrgIDPaginated(r.Context(), claims.OrgID, p)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to list coverage")
 		return
@@ -16,12 +17,13 @@ func (h *Handler) GetCoverage(w http.ResponseWriter, r *http.Request) {
 	if entries == nil {
 		entries = []models.CoverageEntry{}
 	}
-	writeData(w, entries)
+	writeDataWithMeta(w, entries, total, p.Page, p.PerPage)
 }
 
 func (h *Handler) GetCoverageGaps(w http.ResponseWriter, r *http.Request) {
 	claims, _ := claimsFromRequest(r)
-	gaps, err := h.Coverage.GetGaps(r.Context(), claims.OrgID)
+	p := parsePagination(r)
+	gaps, total, err := h.Coverage.GetGapsPaginated(r.Context(), claims.OrgID, p)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to list coverage gaps")
 		return
@@ -29,20 +31,46 @@ func (h *Handler) GetCoverageGaps(w http.ResponseWriter, r *http.Request) {
 	if gaps == nil {
 		gaps = []models.CoverageEntry{}
 	}
-	writeData(w, gaps)
+	writeDataWithMeta(w, gaps, total, p.Page, p.PerPage)
 }
 
 func (h *Handler) DashboardSummary(w http.ResponseWriter, r *http.Request) {
 	claims, _ := claimsFromRequest(r)
 	ctx := r.Context()
 
-	assetCount, _ := h.Assets.CountByOrgID(ctx, claims.OrgID)
-	totalEngagements, activeEngagements, _ := h.Engagements.CountByOrgID(ctx, claims.OrgID)
-	_, activeRuns, completedRuns, _ := h.Runs.CountByOrgID(ctx, claims.OrgID)
-	totalFindings, criticalFindings, highFindings, mediumFindings, lowFindings, _ := h.Findings.CountByOrgIDFull(ctx, claims.OrgID)
-	coverageEntries, coverageGaps, _ := h.Coverage.CountByOrgID(ctx, claims.OrgID)
+	var dbErrors int
 
-	connectors, _ := h.ConnInst.ListByOrgID(ctx, claims.OrgID)
+	assetCount, err := h.Assets.CountByOrgID(ctx, claims.OrgID)
+	if err != nil {
+		h.Logger.Error("dashboard: counting assets", "error", err)
+		dbErrors++
+	}
+	totalEngagements, activeEngagements, err := h.Engagements.CountByOrgID(ctx, claims.OrgID)
+	if err != nil {
+		h.Logger.Error("dashboard: counting engagements", "error", err)
+		dbErrors++
+	}
+	_, activeRuns, completedRuns, err := h.Runs.CountByOrgID(ctx, claims.OrgID)
+	if err != nil {
+		h.Logger.Error("dashboard: counting runs", "error", err)
+		dbErrors++
+	}
+	totalFindings, criticalFindings, highFindings, mediumFindings, lowFindings, err := h.Findings.CountByOrgIDFull(ctx, claims.OrgID)
+	if err != nil {
+		h.Logger.Error("dashboard: counting findings", "error", err)
+		dbErrors++
+	}
+	coverageEntries, coverageGaps, err := h.Coverage.CountByOrgID(ctx, claims.OrgID)
+	if err != nil {
+		h.Logger.Error("dashboard: counting coverage", "error", err)
+		dbErrors++
+	}
+
+	connectors, err := h.ConnInst.ListByOrgID(ctx, claims.OrgID)
+	if err != nil {
+		h.Logger.Error("dashboard: listing connectors", "error", err)
+		dbErrors++
+	}
 	healthyConnectors := 0
 	for _, c := range connectors {
 		if c.HealthStatus == "healthy" {
@@ -50,7 +78,7 @@ func (h *Handler) DashboardSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeData(w, map[string]any{
+	result := map[string]any{
 		"total_assets":        assetCount,
 		"active_engagements":  activeEngagements,
 		"total_engagements":   totalEngagements,
@@ -66,7 +94,11 @@ func (h *Handler) DashboardSummary(w http.ResponseWriter, r *http.Request) {
 		"connectors":          len(connectors),
 		"healthy_connectors":  healthyConnectors,
 		"kill_switch_engaged": h.IsKillSwitchEngaged(),
-	})
+	}
+	if dbErrors > 0 {
+		result["partial"] = true
+	}
+	writeData(w, result)
 }
 
 func (h *Handler) DashboardActivity(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +125,10 @@ func (h *Handler) DashboardActivity(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) DashboardHealth(w http.ResponseWriter, r *http.Request) {
 	claims, _ := claimsFromRequest(r)
 
-	connectors, _ := h.ConnInst.ListByOrgID(r.Context(), claims.OrgID)
+	connectors, err := h.ConnInst.ListByOrgID(r.Context(), claims.OrgID)
+	if err != nil {
+		h.Logger.Error("dashboard health: listing connectors", "error", err)
+	}
 
 	type connHealth struct {
 		ID           string  `json:"id"`

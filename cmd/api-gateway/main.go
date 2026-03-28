@@ -92,7 +92,10 @@ func main() {
 		publisher = natspkg.NewPublisher(natsClient.JetStream, logger)
 	}
 
-	// Auth — validate JWT secret
+	// Auth — resolve JWT secret from reference env var if configured
+	if cfg.Auth.JWTSecret == "" && cfg.Auth.JWTSecretRef != "" {
+		cfg.Auth.JWTSecret = os.Getenv(cfg.Auth.JWTSecretRef)
+	}
 	if cfg.Auth.JWTSecret == "" {
 		logger.Error("AEGISCLAW_AUTH_JWT_SECRET is not set — refusing to start with empty JWT secret")
 		os.Exit(1)
@@ -208,13 +211,13 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		if err := pool.Ping(r.Context()); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"not_ready","service":"api-gateway","error":"database: %s"}`, err.Error())
+			fmt.Fprintf(w, `{"status":"not_ready","service":"api-gateway","check":"database"}`)
 			return
 		}
 		if natsClient != nil {
 			if err := natsClient.HealthCheck(); err != nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				fmt.Fprintf(w, `{"status":"not_ready","service":"api-gateway","error":"nats: %s"}`, err.Error())
+				fmt.Fprintf(w, `{"status":"not_ready","service":"api-gateway","check":"nats"}`)
 				return
 			}
 		}

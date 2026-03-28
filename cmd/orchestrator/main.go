@@ -219,12 +219,12 @@ func main() {
 		ctx := r.Context()
 		if err := pool.Ping(ctx); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"not_ready","service":"orchestrator","error":"database: %s"}`, err.Error())
+			fmt.Fprintf(w, `{"status":"not_ready","service":"orchestrator","check":"database"}`)
 			return
 		}
 		if err := nc.HealthCheck(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"not_ready","service":"orchestrator","error":"nats: %s"}`, err.Error())
+			fmt.Fprintf(w, `{"status":"not_ready","service":"orchestrator","check":"nats"}`)
 			return
 		}
 		fmt.Fprintf(w, `{"status":"ready","service":"orchestrator"}`)

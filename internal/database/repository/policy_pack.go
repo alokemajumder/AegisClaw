@@ -61,7 +61,7 @@ func (r *PolicyPackRepo) GetDefaultByOrgID(ctx context.Context, orgID uuid.UUID)
 func (r *PolicyPackRepo) ListByOrgID(ctx context.Context, orgID uuid.UUID) ([]models.PolicyPack, error) {
 	rows, err := r.q.Query(ctx,
 		`SELECT id, org_id, name, description, is_default, rules, version, created_at, updated_at
-		 FROM policy_packs WHERE org_id = $1 ORDER BY name`, orgID)
+		 FROM policy_packs WHERE org_id = $1 ORDER BY name LIMIT 1000`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing policy packs: %w", err)
 	}
@@ -76,6 +76,32 @@ func (r *PolicyPackRepo) ListByOrgID(ctx context.Context, orgID uuid.UUID) ([]mo
 		packs = append(packs, p)
 	}
 	return packs, rows.Err()
+}
+
+func (r *PolicyPackRepo) ListByOrgIDPaginated(ctx context.Context, orgID uuid.UUID, p models.PaginationParams) ([]models.PolicyPack, int, error) {
+	var total int
+	err := r.q.QueryRow(ctx, `SELECT count(*) FROM policy_packs WHERE org_id = $1`, orgID).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("counting policy packs: %w", err)
+	}
+
+	rows, err := r.q.Query(ctx,
+		`SELECT id, org_id, name, description, is_default, rules, version, created_at, updated_at
+		 FROM policy_packs WHERE org_id = $1 ORDER BY name LIMIT $2 OFFSET $3`, orgID, p.Limit(), p.Offset())
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing policy packs: %w", err)
+	}
+	defer rows.Close()
+
+	var packs []models.PolicyPack
+	for rows.Next() {
+		var pk models.PolicyPack
+		if err := rows.Scan(&pk.ID, &pk.OrgID, &pk.Name, &pk.Description, &pk.IsDefault, &pk.Rules, &pk.Version, &pk.CreatedAt, &pk.UpdatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scanning policy pack: %w", err)
+		}
+		packs = append(packs, pk)
+	}
+	return packs, total, rows.Err()
 }
 
 func (r *PolicyPackRepo) Update(ctx context.Context, p *models.PolicyPack) error {

@@ -5,7 +5,7 @@ RUN apk add --no-cache git ca-certificates
 
 WORKDIR /app
 
-COPY go.mod go.sum go.work ./
+COPY go.mod go.sum go.work go.work.sum ./
 RUN go mod download
 
 COPY . .
@@ -15,7 +15,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /bin/connector-service
 # Runtime stage
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates tzdata && \
+RUN apk add --no-cache ca-certificates tzdata wget && \
     addgroup -g 1001 aegisclaw && \
     adduser -D -u 1001 -G aegisclaw aegisclaw
 

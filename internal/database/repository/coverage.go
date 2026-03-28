@@ -39,7 +39,7 @@ func (r *CoverageRepo) ListByOrgID(ctx context.Context, orgID uuid.UUID) ([]mode
 	rows, err := r.q.Query(ctx,
 		`SELECT id, org_id, technique_id, asset_id, telemetry_source, has_telemetry, has_detection, has_alert,
 		 last_validated_at, last_run_id, created_at, updated_at
-		 FROM coverage_entries WHERE org_id = $1 ORDER BY technique_id`, orgID)
+		 FROM coverage_entries WHERE org_id = $1 ORDER BY technique_id LIMIT 10000`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing coverage: %w", err)
 	}
@@ -47,17 +47,58 @@ func (r *CoverageRepo) ListByOrgID(ctx context.Context, orgID uuid.UUID) ([]mode
 	return r.scanAll(rows)
 }
 
+func (r *CoverageRepo) ListByOrgIDPaginated(ctx context.Context, orgID uuid.UUID, p models.PaginationParams) ([]models.CoverageEntry, int, error) {
+	var total int
+	err := r.q.QueryRow(ctx, `SELECT count(*) FROM coverage_entries WHERE org_id = $1`, orgID).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("counting coverage: %w", err)
+	}
+
+	rows, err := r.q.Query(ctx,
+		`SELECT id, org_id, technique_id, asset_id, telemetry_source, has_telemetry, has_detection, has_alert,
+		 last_validated_at, last_run_id, created_at, updated_at
+		 FROM coverage_entries WHERE org_id = $1 ORDER BY technique_id LIMIT $2 OFFSET $3`, orgID, p.Limit(), p.Offset())
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing coverage: %w", err)
+	}
+	defer rows.Close()
+	items, err := r.scanAll(rows)
+	return items, total, err
+}
+
 func (r *CoverageRepo) GetGaps(ctx context.Context, orgID uuid.UUID) ([]models.CoverageEntry, error) {
 	rows, err := r.q.Query(ctx,
 		`SELECT id, org_id, technique_id, asset_id, telemetry_source, has_telemetry, has_detection, has_alert,
 		 last_validated_at, last_run_id, created_at, updated_at
 		 FROM coverage_entries WHERE org_id = $1 AND (has_telemetry = false OR has_detection = false OR has_alert = false)
-		 ORDER BY technique_id`, orgID)
+		 ORDER BY technique_id LIMIT 10000`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing coverage gaps: %w", err)
 	}
 	defer rows.Close()
 	return r.scanAll(rows)
+}
+
+func (r *CoverageRepo) GetGapsPaginated(ctx context.Context, orgID uuid.UUID, p models.PaginationParams) ([]models.CoverageEntry, int, error) {
+	var total int
+	err := r.q.QueryRow(ctx,
+		`SELECT count(*) FROM coverage_entries WHERE org_id = $1 AND (has_telemetry = false OR has_detection = false OR has_alert = false)`,
+		orgID).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("counting coverage gaps: %w", err)
+	}
+
+	rows, err := r.q.Query(ctx,
+		`SELECT id, org_id, technique_id, asset_id, telemetry_source, has_telemetry, has_detection, has_alert,
+		 last_validated_at, last_run_id, created_at, updated_at
+		 FROM coverage_entries WHERE org_id = $1 AND (has_telemetry = false OR has_detection = false OR has_alert = false)
+		 ORDER BY technique_id LIMIT $2 OFFSET $3`, orgID, p.Limit(), p.Offset())
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing coverage gaps: %w", err)
+	}
+	defer rows.Close()
+	items, err := r.scanAll(rows)
+	return items, total, err
 }
 
 // CountByOrgID returns the total number of coverage entries and the number of gaps.

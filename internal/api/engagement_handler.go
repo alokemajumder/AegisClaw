@@ -52,6 +52,10 @@ func (h *Handler) CreateEngagement(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
+	if err := validateTextLength("name", req.Name, 255); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
 
 	if req.AllowedTiers == nil {
 		req.AllowedTiers = []int{0, 1}

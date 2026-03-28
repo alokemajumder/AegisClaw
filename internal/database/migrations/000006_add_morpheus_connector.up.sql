@@ -1,12 +1,16 @@
+-- Extend category CHECK constraint to include 'analytics'.
+ALTER TABLE connector_registry DROP CONSTRAINT IF EXISTS connector_registry_category_check;
+ALTER TABLE connector_registry ADD CONSTRAINT connector_registry_category_check
+    CHECK (category IN ('siem','edr','itsm','identity','notification','cloud','analytics'));
+
 -- Add Morpheus (NVIDIA GPU-accelerated security analytics) to the connector registry.
-INSERT INTO connector_registry (id, connector_type, display_name, category, description, capabilities, config_schema, created_at, updated_at)
+INSERT INTO connector_registry (connector_type, category, display_name, description, version, config_schema, capabilities, status)
 VALUES (
-    gen_random_uuid(),
     'morpheus',
-    'NVIDIA Morpheus',
     'analytics',
+    'NVIDIA Morpheus',
     'GPU-accelerated security analytics via NVIDIA Morpheus (Triton + RAPIDS). Real-time log classification, anomaly detection, and sensitive information detection.',
-    '["query_events"]',
+    '1.0.0',
     '{
         "type": "object",
         "properties": {
@@ -17,13 +21,12 @@ VALUES (
         },
         "required": ["triton_url", "model_name"]
     }',
-    NOW(),
-    NOW()
+    '{"query_events"}',
+    'available'
 )
 ON CONFLICT (connector_type) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     category = EXCLUDED.category,
     description = EXCLUDED.description,
     capabilities = EXCLUDED.capabilities,
-    config_schema = EXCLUDED.config_schema,
-    updated_at = NOW();
+    config_schema = EXCLUDED.config_schema;

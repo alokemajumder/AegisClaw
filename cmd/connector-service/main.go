@@ -101,7 +101,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		if err := pool.Ping(r.Context()); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"not_ready","service":"connector-service","error":"database: %s"}`, err.Error())
+			fmt.Fprintf(w, `{"status":"not_ready","service":"connector-service","check":"database"}`)
 			return
 		}
 		fmt.Fprintf(w, `{"status":"ready","service":"connector-service"}`)

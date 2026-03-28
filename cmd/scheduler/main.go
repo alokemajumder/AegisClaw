@@ -81,12 +81,12 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		if err := pool.Ping(r.Context()); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"not_ready","service":"scheduler","error":"database: %s"}`, err.Error())
+			fmt.Fprintf(w, `{"status":"not_ready","service":"scheduler","check":"database"}`)
 			return
 		}
 		if err := nc.HealthCheck(); err != nil {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"not_ready","service":"scheduler","error":"nats: %s"}`, err.Error())
+			fmt.Fprintf(w, `{"status":"not_ready","service":"scheduler","check":"nats"}`)
 			return
 		}
 		fmt.Fprintf(w, `{"status":"ready","service":"scheduler"}`)

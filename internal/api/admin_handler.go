@@ -12,7 +12,8 @@ import (
 
 func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	claims, _ := claimsFromRequest(r)
-	users, err := h.Users.ListByOrgID(r.Context(), claims.OrgID)
+	p := parsePagination(r)
+	users, total, err := h.Users.ListByOrgIDPaginated(r.Context(), claims.OrgID, p)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to list users")
 		return
@@ -20,7 +21,7 @@ func (h *Handler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	if users == nil {
 		users = []models.User{}
 	}
-	writeData(w, users)
+	writeDataWithMeta(w, users, total, p.Page, p.PerPage)
 }
 
 func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
@@ -53,8 +54,12 @@ func (h *Handler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
-	if len(req.Password) < 8 {
-		writeError(w, http.StatusBadRequest, "validation_error", "password must be at least 8 characters")
+	if err := validateMaxLength(map[string]string{"name": req.Name, "email": req.Email}, 255); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	if len(req.Password) < 8 || len(req.Password) > 128 {
+		writeError(w, http.StatusBadRequest, "validation_error", "password must be between 8 and 128 characters")
 		return
 	}
 
@@ -115,6 +120,10 @@ func (h *Handler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		user.Name = *req.Name
 	}
 	if req.Role != nil {
+		if err := validateUserRole(*req.Role); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_role", err.Error())
+			return
+		}
 		user.Role = models.UserRole(*req.Role)
 	}
 
@@ -145,8 +154,13 @@ func (h *Handler) QueryAuditLog(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) SystemHealth(w http.ResponseWriter, r *http.Request) {
 	dbHealthy := h.DB.Ping(r.Context()) == nil
 
+	status := "healthy"
+	if !dbHealthy {
+		status = "degraded"
+	}
+
 	writeData(w, map[string]any{
-		"status":   "healthy",
+		"status":   status,
 		"service":  "api-gateway",
 		"version":  "1.0.0",
 		"database": dbHealthy,

@@ -61,7 +61,7 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*models.User, 
 func (r *UserRepo) ListByOrgID(ctx context.Context, orgID uuid.UUID) ([]models.User, error) {
 	rows, err := r.q.Query(ctx,
 		`SELECT id, org_id, email, name, password_hash, role, sso_subject, settings, created_at, updated_at
-		 FROM users WHERE org_id = $1 ORDER BY name`, orgID)
+		 FROM users WHERE org_id = $1 ORDER BY name LIMIT 1000`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing users: %w", err)
 	}
@@ -76,6 +76,32 @@ func (r *UserRepo) ListByOrgID(ctx context.Context, orgID uuid.UUID) ([]models.U
 		users = append(users, u)
 	}
 	return users, rows.Err()
+}
+
+func (r *UserRepo) ListByOrgIDPaginated(ctx context.Context, orgID uuid.UUID, p models.PaginationParams) ([]models.User, int, error) {
+	var total int
+	err := r.q.QueryRow(ctx, `SELECT count(*) FROM users WHERE org_id = $1`, orgID).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("counting users: %w", err)
+	}
+
+	rows, err := r.q.Query(ctx,
+		`SELECT id, org_id, email, name, password_hash, role, sso_subject, settings, created_at, updated_at
+		 FROM users WHERE org_id = $1 ORDER BY name LIMIT $2 OFFSET $3`, orgID, p.Limit(), p.Offset())
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing users: %w", err)
+	}
+	defer rows.Close()
+
+	var users []models.User
+	for rows.Next() {
+		var u models.User
+		if err := rows.Scan(&u.ID, &u.OrgID, &u.Email, &u.Name, &u.PasswordHash, &u.Role, &u.SSOSubject, &u.Settings, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scanning user: %w", err)
+		}
+		users = append(users, u)
+	}
+	return users, total, rows.Err()
 }
 
 func (r *UserRepo) Update(ctx context.Context, u *models.User) error {

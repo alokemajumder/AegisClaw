@@ -46,6 +46,10 @@ func (h *Handler) CreateAsset(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
+	if err := validateMaxLength(map[string]string{"name": req.Name}, 255); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
 	if err := validateAssetType(req.AssetType); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return

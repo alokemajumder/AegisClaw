@@ -57,7 +57,7 @@ func (r *OrganizationRepo) Update(ctx context.Context, org *models.Organization)
 
 func (r *OrganizationRepo) List(ctx context.Context) ([]models.Organization, error) {
 	rows, err := r.q.Query(ctx,
-		`SELECT id, name, settings, created_at, updated_at FROM organizations ORDER BY name`)
+		`SELECT id, name, settings, created_at, updated_at FROM organizations ORDER BY name LIMIT 1000`)
 	if err != nil {
 		return nil, fmt.Errorf("listing organizations: %w", err)
 	}
@@ -72,4 +72,30 @@ func (r *OrganizationRepo) List(ctx context.Context) ([]models.Organization, err
 		orgs = append(orgs, o)
 	}
 	return orgs, rows.Err()
+}
+
+func (r *OrganizationRepo) ListPaginated(ctx context.Context, p models.PaginationParams) ([]models.Organization, int, error) {
+	var total int
+	err := r.q.QueryRow(ctx, `SELECT count(*) FROM organizations`).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("counting organizations: %w", err)
+	}
+
+	rows, err := r.q.Query(ctx,
+		`SELECT id, name, settings, created_at, updated_at FROM organizations ORDER BY name LIMIT $1 OFFSET $2`,
+		p.Limit(), p.Offset())
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing organizations: %w", err)
+	}
+	defer rows.Close()
+
+	var orgs []models.Organization
+	for rows.Next() {
+		var o models.Organization
+		if err := rows.Scan(&o.ID, &o.Name, &o.Settings, &o.CreatedAt, &o.UpdatedAt); err != nil {
+			return nil, 0, fmt.Errorf("scanning organization: %w", err)
+		}
+		orgs = append(orgs, o)
+	}
+	return orgs, total, rows.Err()
 }

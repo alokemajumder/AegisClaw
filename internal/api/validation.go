@@ -80,3 +80,25 @@ func validateRequired(fields map[string]string) error {
 	}
 	return nil
 }
+
+// validateMaxLength checks that string fields do not exceed their maximum allowed length.
+func validateMaxLength(fields map[string]string, maxLen int) error {
+	var tooLong []string
+	for name, value := range fields {
+		if len(value) > maxLen {
+			tooLong = append(tooLong, name)
+		}
+	}
+	if len(tooLong) > 0 {
+		return fmt.Errorf("fields exceed maximum length of %d characters: %s", maxLen, strings.Join(tooLong, ", "))
+	}
+	return nil
+}
+
+// validateTextLength checks a single field against a maximum character count.
+func validateTextLength(field, value string, maxLen int) error {
+	if len(value) > maxLen {
+		return fmt.Errorf("%s exceeds maximum length of %d characters", field, maxLen)
+	}
+	return nil
+}

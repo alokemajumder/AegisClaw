@@ -50,7 +50,7 @@ func (r *ConnectorInstanceRepo) ListByOrgID(ctx context.Context, orgID uuid.UUID
 	rows, err := r.q.Query(ctx,
 		`SELECT id, org_id, connector_type, category, name, description, enabled, config, secret_ref, auth_method,
 		 health_status, health_checked_at, rate_limit_config, retry_config, field_mappings, created_at, updated_at
-		 FROM connector_instances WHERE org_id = $1 ORDER BY category, name`, orgID)
+		 FROM connector_instances WHERE org_id = $1 ORDER BY category, name LIMIT 1000`, orgID)
 	if err != nil {
 		return nil, fmt.Errorf("listing connector instances: %w", err)
 	}
@@ -58,11 +58,30 @@ func (r *ConnectorInstanceRepo) ListByOrgID(ctx context.Context, orgID uuid.UUID
 	return r.scanAll(rows)
 }
 
+func (r *ConnectorInstanceRepo) ListByOrgIDPaginated(ctx context.Context, orgID uuid.UUID, p models.PaginationParams) ([]models.ConnectorInstance, int, error) {
+	var total int
+	err := r.q.QueryRow(ctx, `SELECT count(*) FROM connector_instances WHERE org_id = $1`, orgID).Scan(&total)
+	if err != nil {
+		return nil, 0, fmt.Errorf("counting connector instances: %w", err)
+	}
+
+	rows, err := r.q.Query(ctx,
+		`SELECT id, org_id, connector_type, category, name, description, enabled, config, secret_ref, auth_method,
+		 health_status, health_checked_at, rate_limit_config, retry_config, field_mappings, created_at, updated_at
+		 FROM connector_instances WHERE org_id = $1 ORDER BY category, name LIMIT $2 OFFSET $3`, orgID, p.Limit(), p.Offset())
+	if err != nil {
+		return nil, 0, fmt.Errorf("listing connector instances: %w", err)
+	}
+	defer rows.Close()
+	items, err := r.scanAll(rows)
+	return items, total, err
+}
+
 func (r *ConnectorInstanceRepo) ListByCategory(ctx context.Context, orgID uuid.UUID, category string) ([]models.ConnectorInstance, error) {
 	rows, err := r.q.Query(ctx,
 		`SELECT id, org_id, connector_type, category, name, description, enabled, config, secret_ref, auth_method,
 		 health_status, health_checked_at, rate_limit_config, retry_config, field_mappings, created_at, updated_at
-		 FROM connector_instances WHERE org_id = $1 AND category = $2 ORDER BY name`, orgID, category)
+		 FROM connector_instances WHERE org_id = $1 AND category = $2 ORDER BY name LIMIT 1000`, orgID, category)
 	if err != nil {
 		return nil, fmt.Errorf("listing connector instances by category: %w", err)
 	}

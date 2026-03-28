@@ -1,3 +1,16 @@
+# AegisClaw Configuration
+#
+# This file provides NON-SENSITIVE defaults for local development.
+# All sensitive values (passwords, secrets, keys) MUST be provided via
+# environment variables in production. Viper reads env vars with the
+# AEGISCLAW_ prefix, e.g.:
+#   AEGISCLAW_DATABASE_PASSWORD  -> database.password
+#   AEGISCLAW_AUTH_JWT_SECRET    -> auth.jwt_secret
+#   AEGISCLAW_MINIO_ACCESS_KEY   -> minio.access_key
+#   AEGISCLAW_MINIO_SECRET_KEY   -> minio.secret_key
+#
+# See .env.example for the full list of supported environment variables.
+
 server:
   api_port: 8080
   grpc_base_port: 9090
@@ -6,10 +19,10 @@ database:
   host: localhost
   port: 5432
   user: aegisclaw
-  password: aegisclaw
   name: aegisclaw
   ssl_mode: disable
   max_conns: 25
+  # password: provided via AEGISCLAW_DATABASE_PASSWORD env var
 
 nats:
   url: nats://localhost:4222
@@ -18,10 +31,9 @@ nats:
 
 minio:
   endpoint: localhost:9000
-  access_key: minioadmin
-  secret_key: minioadmin
   bucket: aegisclaw-evidence
   use_ssl: false
+  # access_key / secret_key: provided via AEGISCLAW_MINIO_ACCESS_KEY / SECRET_KEY env vars
 
 ollama:
   url: http://localhost:11434
@@ -58,9 +70,9 @@ ollama:
 #   timeout_seconds: 10
 
 auth:
-  jwt_secret: dev-secret-change-in-production
   token_expiry: 15m
   refresh_expiry: 168h  # 7 days
+  # jwt_secret: provided via AEGISCLAW_AUTH_JWT_SECRET env var
   sso:
     enabled: false
     provider: oidc

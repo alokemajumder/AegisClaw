@@ -34,13 +34,16 @@ func (h *Handler) GetConnectorType(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) ListConnectorInstances(w http.ResponseWriter, r *http.Request) {
 	claims, _ := claimsFromRequest(r)
 	category := r.URL.Query().Get("category")
+	p := parsePagination(r)
 
 	var instances []models.ConnectorInstance
+	var total int
 	var err error
 	if category != "" {
 		instances, err = h.ConnInst.ListByCategory(r.Context(), claims.OrgID, category)
+		total = len(instances)
 	} else {
-		instances, err = h.ConnInst.ListByOrgID(r.Context(), claims.OrgID)
+		instances, total, err = h.ConnInst.ListByOrgIDPaginated(r.Context(), claims.OrgID, p)
 	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to list connectors")
@@ -49,7 +52,16 @@ func (h *Handler) ListConnectorInstances(w http.ResponseWriter, r *http.Request)
 	if instances == nil {
 		instances = []models.ConnectorInstance{}
 	}
-	writeData(w, instances)
+	redactConnectorConfigs(instances)
+	writeDataWithMeta(w, instances, total, p.Page, p.PerPage)
+}
+
+// redactConnectorConfigs removes sensitive config data from connector instances before serialization.
+func redactConnectorConfigs(instances []models.ConnectorInstance) {
+	for i := range instances {
+		instances[i].Config = json.RawMessage(`{}`)
+		instances[i].SecretRef = nil
+	}
 }
 
 func (h *Handler) CreateConnectorInstance(w http.ResponseWriter, r *http.Request) {
@@ -76,6 +88,10 @@ func (h *Handler) CreateConnectorInstance(w http.ResponseWriter, r *http.Request
 		"name":           req.Name,
 		"auth_method":    req.AuthMethod,
 	}); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
+		return
+	}
+	if err := validateMaxLength(map[string]string{"name": req.Name, "connector_type": req.ConnectorType}, 255); err != nil {
 		writeError(w, http.StatusBadRequest, "validation_error", err.Error())
 		return
 	}
@@ -152,6 +168,8 @@ func (h *Handler) GetConnectorInstance(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found", "Connector not found")
 		return
 	}
+	ci.Config = json.RawMessage(`{}`)
+	ci.SecretRef = nil
 	writeData(w, ci)
 }
 

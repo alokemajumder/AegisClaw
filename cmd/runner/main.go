@@ -101,7 +101,10 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer(grpcutil.ServerOptions(logger)...)
-	// TODO: Register runner gRPC services once proto definitions are available.
+	// gRPC service registration is pending proto definitions. The runner currently
+	// executes playbooks in-process via the orchestrator's RunEngine. Once proto
+	// definitions are finalized, a RunnerService will be registered here to allow
+	// the orchestrator to dispatch execution to dedicated runner instances over gRPC.
 
 	go func() {
 		logger.Info("runner grpc server starting", "addr", grpcAddr)
@@ -121,7 +124,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 		if !nc.Conn.IsConnected() {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"not_ready","service":"runner","error":"nats: disconnected"}`)
+			fmt.Fprintf(w, `{"status":"not_ready","service":"runner","check":"nats"}`)
 			return
 		}
 		fmt.Fprintf(w, `{"status":"ready","service":"runner"}`)

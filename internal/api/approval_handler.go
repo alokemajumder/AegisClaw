@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/alokemajumder/AegisClaw/internal/models"
 	natspkg "github.com/alokemajumder/AegisClaw/internal/nats"
@@ -82,6 +83,10 @@ func (h *Handler) ApproveRequest(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
 		return
 	}
+	if strings.TrimSpace(req.Rationale) == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "Rationale is required for audit compliance")
+		return
+	}
 
 	if err := h.Approvals.UpdateDecision(r.Context(), id, models.ApprovalApproved, claims.UserID, req.Rationale); err != nil {
 		writeError(w, http.StatusInternalServerError, "db_error", "Failed to approve request")
@@ -149,6 +154,10 @@ func (h *Handler) DenyRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := readJSON(w, r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
+		return
+	}
+	if strings.TrimSpace(req.Rationale) == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "Rationale is required for audit compliance")
 		return
 	}
 

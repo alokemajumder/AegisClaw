@@ -122,6 +122,18 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Reject access tokens being used as refresh tokens
+	if claims.TokenType != "" && claims.TokenType != "refresh" {
+		writeError(w, http.StatusUnauthorized, "invalid_token", "Invalid token type")
+		return
+	}
+
+	// Check if the refresh token has been revoked
+	if h.TokenSvc.Blacklist != nil && h.TokenSvc.Blacklist.IsRevoked(req.RefreshToken) {
+		writeError(w, http.StatusUnauthorized, "invalid_token", "Refresh token has been revoked")
+		return
+	}
+
 	user, err := h.Users.GetByID(r.Context(), claims.UserID)
 	if err != nil {
 		writeError(w, http.StatusUnauthorized, "invalid_token", "User not found")
